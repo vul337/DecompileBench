@@ -1,0 +1,29 @@
+oss_fuzz_path: /mnt/data/oss-fuzz
+env: 
+  CFLAGS: '-fPIC -fvisibility=default  -Wl,--export-dynamic'
+  CXXFLAGS: '-fPIC -fvisibility=default  -Wl,--export-dynamic'
+  CC: 'clang -Wl,--export-dynamic'
+  CXX: 'clang++ -Wl,--export-dynamic'
+sanitizer:
+  - coverage
+decompilers:
+  # - "angr"
+  # - "binja"
+  # - "dewolf"
+  # - "ghidra"
+  # - "hexrays"
+  # - "mlm"
+  # - "retdec"
+  # - "llm4decompile"
+  # - "qwen"
+  # - "deepseek"
+  # - "gpt-4o-mini"
+  # - "gpt-4o"
+  - "claude"
+options:
+  - O0
+  - O1
+  - O2
+  - O3
+  - Os
+result_path: ./result1.json
