@@ -12,8 +12,8 @@ import glob
 from pathlib import Path
 
 client = openai.AsyncClient(
-    base_url="https://platform.vul337.team:8443/v1",
-    api_key="sk-vzp1lEbFHclEBEaw7234DcA04cA74d29BaB42625203915Dc"
+    base_url="http://localhost:8443/v1",
+    api_key="sk-123456"
 )
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Decompile with LLM")
@@ -22,11 +22,6 @@ def parse_arguments():
     parser.add_argument("--model", type=str, required=True, help="Model name")
     return parser.parse_args()
 
-'''
-python llm_decompile.py --dataset /code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated --output ./output_llm4decompile --model LLM4Binary/llm4decompile-22b-v2
-python llm_decompile.py --dataset /code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_patch --output ../output_dataset/mlm --model stable-decompile
-
-'''
 args = parse_arguments()
 
 def format_message(message, role):
@@ -36,7 +31,7 @@ def prompt_format_decompile(decompile_code: str,opt:str,model:str) -> str:
     if  model == "LLM4Binary/llm4decompile-22b-v2":
         prompt = f"# This is the assembly code:\n"
         prompt = prompt + decompile_code.strip() + f"# What is the source code?\n"
-    else:
+    elif model=="MLM":
         prompt = format_message("Rewrite the following decompiled code for better clarity.", "system")
         prompt = prompt + format_message(decompile_code, "user")
         prompt = prompt + "<s>assistant\nassistant\n"
@@ -46,7 +41,7 @@ async def generate(client, addr, code, opt):
     try:
         response = await client.completions.create(
             prompt=prompt_format_decompile(code,opt,model=args.model),
-            model=args.model,#"stable-decompile",#LLM4Binary/llm4decompile-22b-v2
+            model=args.model,
             max_tokens=4096,
             temperature=0.1,
             stop=["<|im_end|>", "</s>"]
@@ -76,15 +71,10 @@ async def decompile_functions(decompiled_code):
     
     for task in tqdm(tasks):
         addr, decompiled = await task
-        # print(addr)
         if decompiled is not None:
-            # decompile_result[addr] = decompiled
             decompile_result.append((addr, decompiled))
         else:
-            # decompile_result[addr] = "ERROR"
             decompile_result.append((addr, "ERROR"))
-    # import ipdb
-    # ipdb.set_trace()
     return decompile_result
 
 async def main():
@@ -96,7 +86,7 @@ async def main():
     else:
         src_dec = 'hexrays'
 
-    output_file = f"{outpath}/llm4decompile4096.jsonl"
+    output_file = f"{outpath}/llm4decompile.jsonl"
     decompiled_list = []
     non_idx = []
     inner_idx = 0
@@ -128,7 +118,6 @@ async def main():
             for item in decompiled_json:
                 f.write(json.dumps(item) + '\n')
 
-    # Save any remaining items in total_list
     if total_list:
         with open(f"{outpath}/{start + margin}.json", 'w') as f:
             f.write(json.dumps(total_list, indent=4))
