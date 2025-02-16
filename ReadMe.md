@@ -6,7 +6,7 @@ This repository contains scripts and tools for evaluating the performance of dec
 
 - **general_llm.py**: This script queries general large language models to generate refined decompiled code using few-shot learning techniques and requirements as outlined in `prompt.md`.
 
-- **specialized_llm**: This script queries LLM4Decompile and MLM for decompiled codes in a zero-shot manner.
+- **specialized_llm.py**: This script queries LLM4Decompile and MLM for decompiled codes in a zero-shot manner.
 
 - **evaluate_rsr.py**: This script recompiles each decompiled code into a shared library and evaluates the Recompile Success Rate (RSR) simultaneously.
 
