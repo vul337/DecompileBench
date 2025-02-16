@@ -23,9 +23,9 @@ from datasets import Dataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--decompile_result", type=str,
-                    # default="/home/yuxincui/code/decompilebench-evaluation/result_merge_llm4")
-                    # default="/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated")
-                    default="/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_0109")
+                    # default="/code/decompilebench-evaluation/result_merge_llm4")
+                    # default="/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated")
+                    default="/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_0109")
 parser.add_argument("--decompiler", type=str, default="all", nargs='+')
 parser.add_argument("--debug", action="store_true")
 parser.add_argument("--partial", action="store_true")
@@ -180,13 +180,13 @@ def evaluate_func(params):
         result_path = pathlib.Path('/challenges') / \
             project / function / "libfunction.so"
         c_path = pathlib.Path(
-            '/mnt/data/qsl/oss-fuzz/build/challenges') / project / function / f"{function}.c"
+            '/mnt/data/oss-fuzz/build/challenges') / project / function / f"{function}.c"
         c_path_docker = pathlib.Path(
             '/challenges') / project / function / f"{function}.c"
     else:
         result_path = pathlib.Path(
             '/challenges') / project / function / option / f"{compiler}" / "libfunction.so"
-        c_path = pathlib.Path('/mnt/data/qsl/oss-fuzz/build/challenges') / \
+        c_path = pathlib.Path('/mnt/data/oss-fuzz/build/challenges') / \
             project / function / option / f"{compiler}" / f"{function}.c"
         c_path_docker = pathlib.Path(
             '/challenges') / project / function / option / f"{compiler}" / f"{function}.c"
@@ -351,9 +351,8 @@ else:
 
 
 docker_cmd = '''docker run -dit --privileged --rm --name evaluate_in_docker \
--v /mnt/data/qsl/oss-fuzz/build/challenges:/challenges \
--v /home/yuxincui/code/decompilebench-evaluation/decompileeval/decompileeval/fix:/fix \
--v /mnt/data/qsl:/qsl \
+-v /mnt/data/oss-fuzz/build/challenges:/challenges \
+-v /code/decompilebench-evaluation/decompileeval/decompileeval/fix:/fix \
 -e FUZZING_ENGINE=libfuzzer \
 -e SANITIZER=coverage -e ARCHITECTURE=x86_64 -e HELPER=True -e FUZZING_LANGUAGE=c++ \
 -e 'CFLAGS=-fPIC -fvisibility=default  -Wl,-export-dynamic ' \
@@ -399,14 +398,14 @@ if not args.partial:
 else:
     gpt_4o_res = []
     claude_res = []
-    with open('/home/yuxincui/code/decompilebench-evaluation/decompileeval/decompileeval/output_llm4decompile/claude-3-5-sonnet-v2-20241022.jsonl', 'r') as f:
+    with open('/code/decompilebench-evaluation/decompileeval/decompileeval/output_llm4decompile/claude-3-5-sonnet-v2-20241022.jsonl', 'r') as f:
         for line in f:
             item = json.loads(line)
             idx = item['idx']
             full_item = df.iloc[idx].copy()  # Ensure we are working with a copy of the row
             full_item['claude'] = item['code']
             claude_res.append(full_item)
-    # with open('/home/yuxincui/code/decompilebench-evaluation/decompileeval/decompileeval/output_llm4decompile/gpt-4o-2024-11-20.jsonl', 'r') as f:
+    # with open('/code/decompilebench-evaluation/decompileeval/decompileeval/output_llm4decompile/gpt-4o-2024-11-20.jsonl', 'r') as f:
     #     for line in f:
     #         item = json.loads(line)
     #         idx = item['idx']

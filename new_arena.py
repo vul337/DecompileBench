@@ -797,9 +797,9 @@ def main():
     rating = defaultdict(lambda: INIT_RATING)
     for model in decompilers:
         rating[model] = INIT_RATING
-    # needed_decompiler_ds = datasets.load_from_disk("/home/yuxincui/code/decompilebench-evaluation/result_merge_llm4")
-    # needed_decompiler_ds = datasets.load_from_disk("/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated")
-    needed_decompiler_ds = datasets.load_from_disk("/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_0109")
+    # needed_decompiler_ds = datasets.load_from_disk("/code/decompilebench-evaluation/result_merge_llm4")
+    # needed_decompiler_ds = datasets.load_from_disk("/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated")
+    needed_decompiler_ds = datasets.load_from_disk("/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_0109")
     
     df = needed_decompiler_ds.to_pandas()
     left_idx = 0
@@ -1098,7 +1098,7 @@ if __name__ == "__main__":
     #     visualize('arena_general/all_chunks')
 # %%
 # import pickle
-# path="/home/yuxincui/code/decompilebench-evaluation/decompileeval/arena_general/chunk_0_100_1.pkl"
+# path="/code/decompilebench-evaluation/decompileeval/arena_general/chunk_0_100_1.pkl"
 # with open(path, "rb") as f:
 #     ret = pickle.load(f)
 # a={'Readability': {'Typecast Issues': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}, 'Non-idiomatic Literal Representation': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}, 'Obfuscated Control Flow': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}, 'Use of Decompiler-Specific Macros': {'A_score': 0, 'B_score': 0, 'winner': 'Tie'}, 'Incorrect Return Behavior': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}}, 'Helpfulness': {'Meaningless Identifier Names': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}, 'Incorrect Identifier Names': {'A_score': 0, 'B_score': 0, 'winner': 'Tie'}, 'Expanded Symbols': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}, 'Overall Function Correctness': {'A_score': 0, 'B_score': 0, 'winner': 'Tie'}, 'Overall Functionality Precision': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}}, 'Both': {'Non-idiomatic dereference': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}, 'Abuse of Memory Layout': {'A_score': -1, 'B_score': -1, 'winner': 'Tie'}}}

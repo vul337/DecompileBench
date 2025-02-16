@@ -10,11 +10,11 @@ from collections import defaultdict
 import json
 import argparse
 '''
-python3 do_decompile.py --dataset  /home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_1 --ck_id 0 --ck_size 10000
-python3 do_decompile.py --dataset  /home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_2 --ck_id 1 --ck_size 10000
-python3 do_decompile.py --dataset  /home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_3 --ck_id 2 --ck_size 10000
+python3 do_decompile.py --dataset  /code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_1 --ck_id 0 --ck_size 10000
+python3 do_decompile.py --dataset  /code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_2 --ck_id 1 --ck_size 10000
+python3 do_decompile.py --dataset  /code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_3 --ck_id 2 --ck_size 10000
 
-python3 do_decompile.py --dataset  /home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_patch --ck_id 0 --ck_size 30000 --only-dump-result
+python3 do_decompile.py --dataset  /code/decompilebench-evaluation/decompileeval/output_dataset/assembly --output ./output_dataset/decompile_result_patch --ck_id 0 --ck_size 30000 --only-dump-result
 
 '''
 HOST = "http://mira.vul337.team:12337"
@@ -107,14 +107,14 @@ from datasets import load_from_disk, concatenate_datasets
 
 # Load the two datasets
 def combine_result():
-    dataset_3 = load_from_disk('/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_3')
-    dataset_2 = load_from_disk('/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_2')
-    dataset_1 = load_from_disk('/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_1')
+    dataset_3 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_3')
+    dataset_2 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_2')
+    dataset_1 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_1')
     # Concatenate the datasets
     combined_dataset = concatenate_datasets([dataset_1, dataset_2, dataset_3])
 
     # Save the combined dataset to disk
-    combined_dataset.save_to_disk('/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result')
+    combined_dataset.save_to_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result')
 
     print("Datasets concatenated and saved successfully.")
 
@@ -132,7 +132,7 @@ async def submit_tasks():
         await client.save_task_queue()
 
 async def patch_empty():
-    ds1 = load_from_disk('/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result')
+    ds1 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result')
     for decompiler in DECOMPILERS:
         await asyncio.gather(*[
             asyncio.create_task(client.decompile_async(
@@ -183,4 +183,4 @@ def patch():
 # asyncio.run(save_result())
 # combine_result()
 patch()
-# python do_decompile.py --dataset  /home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result --output ./output_dataset/decompile_result_patch --ck_id 0 --ck_size 30000 --only-dump-result
+# python do_decompile.py --dataset  /code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result --output ./output_dataset/decompile_result_patch --ck_id 0 --ck_size 30000 --only-dump-result

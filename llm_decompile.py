@@ -23,8 +23,8 @@ def parse_arguments():
     return parser.parse_args()
 
 '''
-python llm_decompile.py --dataset /home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated --output ./output_llm4decompile --model LLM4Binary/llm4decompile-22b-v2
-python llm_decompile.py --dataset /home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_patch --output ../output_dataset/mlm --model stable-decompile
+python llm_decompile.py --dataset /code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated --output ./output_llm4decompile --model LLM4Binary/llm4decompile-22b-v2
+python llm_decompile.py --dataset /code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_patch --output ../output_dataset/mlm --model stable-decompile
 
 '''
 args = parse_arguments()

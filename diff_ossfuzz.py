@@ -22,9 +22,8 @@ logger = logging.getLogger(__name__)
 diff_failed = []
 from datasets import load_from_disk
 dataset = load_from_disk(
-    '/home/yuxincui/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated')
-fuzzer_functions_path = pathlib.Path('/home/yuxincui/code/decompilebench-evaluation/decompileeval/decompileeval/function_fuzzer')
-# separate assembly instructions by ; or \n
+    'ossfuzz_all_updated')
+fuzzer_functions_path = pathlib.Path('function_fuzzer')
 import clang.cindex
 import lief
 from keystone import *
@@ -44,25 +43,12 @@ def patch_fuzzer(file_path, target_function, output_file):
     target_function_addr = binary.get_function_address(target_function)
     binary.patch_address(target_function_addr, ENCODING)
     binary.write(output_file)
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/out/openvswitch/json_parser_target','target_shash','/mnt/data/qsl/oss-fuzz/build/out/openvswitch/json_parser_target_shash_delete_patched')
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/challenges/picotls/ptls_buffer__release_memory/fuzz-client-hello/fuzz-client-hello-cov', 'ptls_buffer__release_memory', '/mnt/data/qsl/oss-fuzz/build/challenges/picotls/ptls_buffer__release_memory/fuzz-client-hello/fuzz-client-hello_patched')
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/challenges/picotls/ptls_buffer__release_memory/fuzz-client-hello/fuzz-client-hello-noadd', 'ptls_buffer__release_memory', '/mnt/data/qsl/oss-fuzz/build/challenges/picotls/ptls_buffer__release_memory/fuzz-client-hello/fuzz-client-hello_patched_noadd')
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/out/nanopb/fuzztest_proto2_pointer', 'pb_decode_tag', '/mnt/data/qsl/oss-fuzz/build/out/nanopb/fuzztest_proto2_pointer_pb_decode_tag_patched')
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/out/mdbtools/fuzz_mdb', 'g_hash_table_insert', '/mnt/data/qsl/oss-fuzz/build/out/mdbtools/fuzz_mdb_g_hash_table_insert_patched')
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/out/openssl/decoder_32', 'ossl_asn1_item_embed_free', '/mnt/data/qsl/oss-fuzz/build/out/openssl/decoder_32_ossl_asn1_item_embed_free_patched')
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/out/imagemagick/encoder_bmp_fuzzer', 'InitializeExceptionInfo', '/mnt/data/qsl/oss-fuzz/build/out/imagemagick/encoder_bmp_fuzzer_InitializeExceptionInfo_patched')
-# patch_fuzzer('/mnt/data/qsl/oss-fuzz/build/out/imagemagick/encoder_bmp_fuzzer', 'GetNextValueInLinkedList', '/mnt/data/qsl/oss-fuzz/build/out/imagemagick/encoder_bmp_fuzzer_GetNextValueInLinkedList_patched')
-# patch_fuzzer('/home/yuxincui/code/decompilebench-evaluation/decompileeval/cases/test', 'foo', '/home/yuxincui/code/decompilebench-evaluation/decompileeval/cases/test_foo_patched')
 
 with open('diff_base_result_group.json', 'r') as f:
     global_data = json.load(f)
-# %%
-
 
 def make_function_static(source, target_function_name):
-    # 匹配函数声明和定义的正则表达式
     def get_function_attributes(cursor):
-        """提取函数的存储修饰符，如 static / extern。"""
         attributes = []
         if cursor.storage_class == clang.cindex.StorageClass.STATIC:
             attributes.append('static')
@@ -71,13 +57,11 @@ def make_function_static(source, target_function_name):
         return attributes
 
     index = clang.cindex.Index.create()
-    # 利用 unsaved_files 传入字符串形式的源代码
     tu = index.parse("input.c", args=[], unsaved_files=[("input.c", source)])
 
     lines = source.split('\n')
     patches = []
 
-    # 先遍历 AST，收集需要修改的位置及类型
     for cursor in tu.cursor.walk_preorder():
         if cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:
             if cursor.spelling == target_function_name:
@@ -86,41 +70,22 @@ def make_function_static(source, target_function_name):
                 end_line = cursor.extent.end.line - 1
 
                 if 'static' in attributes:
-                    # 已经是 static，不需要修改
                     continue
                 elif 'extern' in attributes:
-                    # 需要在函数定义前插入 #define extern static，函数后插入 #undef extern
                     patches.append(('extern', start_line, end_line))
                 else:
-                    # 正常情况只需要前面加一个 static
                     patches.append(('normal', start_line, end_line))
 
-    # 为避免行插入影响后续行号，按照 start_line 倒序进行修改
     patches.sort(key=lambda x: x[1], reverse=True)
 
     for patch_type, sl, el in patches:
         if patch_type == 'extern':
-            # 在函数开始处插入
             lines.insert(sl, '#define extern static')
-            # 在函数末尾插入
             lines.insert(el + 2, '#undef extern')
         elif patch_type == 'normal':
-            # 仅给声明行加 'static '
             lines[sl] = 'static ' + lines[sl]
 
     return '\n'.join(lines)
-
-# %%
-# import clang.cindex
-
-# clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
-# index = clang.cindex.Index.create()
-# a1='/mnt/data/qsl/oss-fuzz/build/functions/openvswitch/ofputil_decode_requestforward.c'
-# with open(a1,'r') as f:
-#     source=f.read()
-# function_name = "ofputil_decode_requestforward"
-# refined_source = make_function_static(source, function_name)
-# %%
 
 
 def parse_args():
@@ -210,8 +175,8 @@ class OSSFuzzDatasetGenerator:
         self.project = project
         self.oss_fuzz_path = self.config['oss_fuzz_path']
         self.project_info_path = pathlib.Path(
-            '/mnt/data/qsl/oss-fuzz/projects') / project / 'project.yaml'
-        print(self.project_info_path)#/mnt/data/qsl/oss-fuzz/projects/unit/project.yaml
+            '/mnt/data/oss-fuzz/projects') / project / 'project.yaml'
+        print(self.project_info_path)#/mnt/data/oss-fuzz/projects/unit/project.yaml
         with open(self.project_info_path, 'r') as f:
             self.project_info = yaml.safe_load(f)
         # print(f"Project info: {self.project_info}")
@@ -256,15 +221,6 @@ class OSSFuzzDatasetGenerator:
                   for key, value in self.config['env'].items()], [])
         cmd = ['python3', 'infra/helper.py', 'build_fuzzers',
                '--clean', '--sanitizer', sanitizer, self.project]
-        # python3 infra/helper.py build_fuzzers --clean --sanitizer coverage libtasn1
-
-        # cmd.extend(env)
-        # cmd.extend(['-e','CC','clang'])
-        # cmd.extend(['-e','CXX','clang++'])
-        # cmd: python3 infra/helper.py build_fuzzers --clean --sanitizer coverage libtasn1 -e CFLAGS=-fPIC -fvisibility=default
-        # python3 infra/helper.py build_fuzzers --clean --sanitizer coverage picotls -e CFLAGS=-fPIC -fvisibility=default
-        # python3 infra/helper.py build_fuzzers --clean --sanitizer coverage picotls -e CFLAGS="-fPIC -fvisibility=default"
-        print(f"cmd: {' '.join(cmd)}")
         build_fuzzer_res = subprocess.run(cmd, cwd=cwd, stderr=subprocess.PIPE)
         if build_fuzzer_res.returncode!=0:
             logger.info(f"--- build_fuzzer_res for {self.project}: {build_fuzzer_res.stderr.decode()}")
@@ -286,7 +242,7 @@ class OSSFuzzDatasetGenerator:
             logger.error(
                 f"coverage failed: Corpus zip file {corpus_zip} does not exist")
             '''
-            orpus zip file /mnt/data/qsl/oss-fuzz/build/out/opensc/fuzz_asn1_print_seed_corpus.zip does not exist
+            orpus zip file /mnt/data/oss-fuzz/build/out/opensc/fuzz_asn1_print_seed_corpus.zip does not exist
             '''
             return
         with zipfile.ZipFile(corpus_zip, 'r') as zip_ref:
@@ -321,7 +277,7 @@ class OSSFuzzDatasetGenerator:
             return {}
         with open(stats_path, 'r') as f:
             data = json.load(f)
-        # /mnt/data/qsl/oss-fuzz/build/stats/tmux/input-fuzzer_result.json
+        # /mnt/data/oss-fuzz/build/stats/tmux/input-fuzzer_result.json
         functions = {}
         for function in data['data'][0]['functions']:
             c_files = [file for file in function['filenames']
@@ -589,14 +545,6 @@ class OSSFuzzDatasetGenerator:
             if result.returncode != 0:
                 print(f"building base failed :{result.stderr.decode()}")
                 logger.error(f"building base failed :{result.stderr.decode()}")
-                '''
-                building failed :/usr/bin/ld: /tmp/BrotliDecoderDecompress-aa9125.o: in function `BrotliDecoderDecompress':
-                BrotliDecoderDecompress.c:(.text+0xf7): undefined reference to `BrotliDecoderStateInit'
-                /usr/bin/ld: BrotliDecoderDecompress.c:(.text+0x15b): undefined reference to `BrotliDecoderStateCleanup'
-                /usr/bin/ld: /challenges/BrotliDecoderDecompress/libfunction.so: hidden symbol `BrotliDecoderStateInit' isn't defined
-                /usr/bin/ld: final link failed: bad value
-                clang: error: linker command failed with exit code 1 (use -v to see invocation)
-                '''
                 return False
             else:
                 logger.info(f"building base success: {function_challenge_path}")
@@ -697,9 +645,6 @@ class OSSFuzzDatasetGenerator:
             patch_fuzzer(str(fuzzer_path.resolve()), function_name,
                          str(final_fuzzer_path.resolve()))
 
-            # logger.info(
-            #     f"patched fuzzer success: {str(final_fuzzer_path.resolve())}")
-            # os.chmod(final_fuzzer_path, 0o0777)
             docker_final_fuzzer_path = f'/out/{fuzzer}_{function_name}_patched'
             cmd = ['docker', 'exec', f'{self.project}',
                    'chmod', '777', docker_final_fuzzer_path]
@@ -791,11 +736,7 @@ class OSSFuzzDatasetGenerator:
             result1 = subprocess.run(
                 cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
             result1.check_returncode()
-            # logger.info(
-            #     f"base1 txt generation success: {base_txt_path1}")
         except Exception as e:
-            # logger.error(
-            #     f"base1 txt generation failed: {e},{result1.stderr.decode()},{result1.stdout.decode()}")
             return False
 
         try:
@@ -817,7 +758,7 @@ class OSSFuzzDatasetGenerator:
         target_libs = {}
         for decompiler in self.decompilers:
             for option in self.options:
-                target_lib_path = pathlib.Path('/mnt/data/qsl/oss-fuzz') / 'build' / 'challenges' / \
+                target_lib_path = pathlib.Path('/mnt/data/oss-fuzz') / 'build' / 'challenges' / \
                     self.project / function_name / option / decompiler / 'libfunction.so'
                 if target_lib_path.exists():
                     target_libs[f'{decompiler}-{option}'] = f'/challenges/{function_name}/{option}/{decompiler}'
@@ -952,11 +893,11 @@ class OSSFuzzDatasetGenerator:
             '-v',
             f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
             '-v',
-            f'/mnt/data/qsl/oss-fuzz/build/dummy:/dummy',
+            f'/mnt/data/oss-fuzz/build/dummy:/dummy',
             '-v',
             f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
             '-v',
-            f'/home/yuxincui/code/decompilebench-evaluation/decompileeval/decompileeval/fix:/fix',
+            f'/code/decompilebench-evaluation/decompileeval/decompileeval/fix:/fix',
 
             '-e',
             'FUZZING_ENGINE=libfuzzer',
@@ -991,8 +932,6 @@ class OSSFuzzDatasetGenerator:
             print(f"Started docker container for {self.project}")
         return self
         
-        # import ipdb; ipdb.set_trace()
-        # self.recompile()
         chmod_cmd = ['docker', 'exec', f'{self.project}', 
         'bash', '-c', 'chmod 755 /out/*.zip']
         chmod_result = subprocess.run(chmod_cmd)
@@ -1014,14 +953,7 @@ def parallel_extract(generator):
     tasks = []
     functions_path = pathlib.Path(
         generator.oss_fuzz_path) / 'build' / 'functions' / generator.project
-    # if functions_path.exists() and any(functions_path.iterdir()):
-    #     print(f"{functions_path} already exists and not empty")
-    #     return
-    # try:
-    #     logger.info(f"--- Extracting functions, self.fuzzers: {generator.fuzzers}")
-    #     logger.info(f"--- Preset functions: {generator.functions}")
-    # except Exception as e:
-    #     logger.error(f"--- Extracting functions, error info : {e}")
+    
     functions_path.mkdir(parents=True, exist_ok=True)
     for _, function_info in generator.functions.items():
         for function, source_path in function_info.items():
@@ -1079,15 +1011,6 @@ class OSSFuzzProjects:
         self.projects = list(set([dataset[i]['project']
                              for i in range(len(dataset))]))
         
-        # self.projects = ['imagemagick']#['sqlite3','rauc','libavif','curl','imagemagick','wget','sqlite3','rauc','libavif','libavc','dav1d']#['libarchive']#['imagemagick']#['wget']#['sqlite3']#['rauc']#['libavif']#['libavc']#['dav1d']
-        import random
-        # random.shuffle(self.projects)
-        print(self.projects)
-
-        '''
-        python diff_fuzzer_result.py  --config ../config/coverage.yaml --project quickjs dropbear lcms opus libidn libical tmux cups mercurial c-ares libxslt njs strongswan nanopb curl mdbtools libsrtp
-        python diff_fuzzer_result.py  --config coverage_new.yaml
-        '''
 
     def gen(self):
         final_result = {}
@@ -1113,13 +1036,6 @@ def main():
 if __name__ == '__main__':
     main()
 
-'''
-error: /out/dumps/*.profdata: No such file or directory
-ERROR:__main__:Failed to generate clang code coverage report.
-Skipping pytz as it is not a C/C++ project
-nohup python diff_fuzzer_result_n.py --config coverage.yaml > output.log 2>&1 &
 
-nohup python diff_fuzzer_result_n.py --config coverage.yaml > rebuild.txt 2>&1 &
-'''
 
 # %%
