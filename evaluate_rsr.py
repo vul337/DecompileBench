@@ -35,20 +35,18 @@ ds_with_decompile_code = datasets.Dataset.load_from_disk(args.decompile_result)
 df = ds_with_decompile_code.to_pandas()
 
 DECOMPILERS = [
-    # "angr",
-    # "binja", "dewolf", "ghidra",
+    "angr",
+    "binja", "dewolf", "ghidra",
     "hexrays",
-    # "retdec",
-    # "mlm", 
-    # "llm4decompile",
-    # 'qwen',
-    # 'deepseek',
-    # "gpt-4o-mini",
-    # "gpt-4o",
-    # "func",
+    "retdec",
+    "mlm", 
+    "llm4decompile",
+    'qwen',
+    'deepseek',
+    "gpt-4o-mini",
+    "gpt-4o",
+    "func",
 ]
-# DECOMPILERS = []
-# DECOMPILERS.extend([ "mlm","llm4decompile"])
 
 # %%
 clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')

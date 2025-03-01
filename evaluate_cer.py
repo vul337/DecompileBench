@@ -867,9 +867,7 @@ class OSSFuzzDatasetGenerator:
             # '-e CFLAGS=-fPIC -fvisibility=default -Wl,--export-dynamic',
             # '-e CXXFLAGS=-fPIC -fvisibility=default -Wl,--export-dynamic']
             subprocess.run(cmd)
-        
-# cimagemagick -e CFLAGS=' -Wl,--export-dynamic -fvisibility=default' -e CXXFLAGS='-Wl,--export-dynamic -fvisibility=default' -e LDFLAGS=' -Wl,--export-dynamic -fvisibility=default'
-    
+            
         cmd = ['docker', 'rm', '-f', f'{self.project}']
         result = subprocess.run(cmd)
         cmd = [
