@@ -111,4 +111,4 @@ Finally, evaluate code quality by running:
 python code_quality.py --run --model your_model --dataset ./decompiled_ds_all --url your_url --api_key your_key --output your_output_path
 ```
 
-This script conducts an LLM arena evaluation across 12 dimensions, computing Elo scores to assess code quality. The output path will contain all scoring information in PKL files. Use the `rate` parameter to calculate Elo scores for different aspects and overall performance.
+This script conducts an LLM arena evaluation across 12 dimensions, computing Elo scores to assess code quality. The output path will contain all scoring information in PKL files. Use the `rate` parameter instead of `run` to calculate Elo scores for different aspects and overall performance.
