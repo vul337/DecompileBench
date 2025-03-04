@@ -23,10 +23,10 @@ from datasets import Dataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--decompile_result", type=str,
-                    default="/code/decompilebench-evaluation/decompileeval/output_dataset/ossfuzz_all_updated")
+                    default="./decompiled_ds_all")
 parser.add_argument("--decompiler", type=str, default="all", nargs='+')
 parser.add_argument("--debug", action="store_true")
-parser.add_argument("--partial", action="store_true")
+parser.add_argument("--ossfuzz_path", type=str, default="/mnt/data/oss-fuzz")
 args = parser.parse_args()
 
 debug = args.debug
@@ -46,6 +46,7 @@ DECOMPILERS = [
     "gpt-4o-mini",
     "gpt-4o",
     "func",
+    "claude",
 ]
 
 # %%
@@ -311,10 +312,6 @@ def decompile_pass_rate(gen_results, compiler, num_workers):
 
     return ret
 
-
-# %%
-
-
 if 'all' in args.decompiler:
     args.decompiler = DECOMPILERS
 result = subprocess.run("docker ps | grep evaluate_in_docker",
@@ -325,9 +322,9 @@ else:
     print("Container does not exist, creating new container")
 
 
-docker_cmd = '''docker run -dit --privileged --rm --name evaluate_in_docker \
--v /mnt/data/oss-fuzz/build/challenges:/challenges \
--v /code/decompilebench-evaluation/decompileeval/decompileeval/fix:/fix \
+docker_cmd = f'''docker run -dit --privileged --rm --name evaluate_in_docker \
+-v {args.ossfuzz_path}/build/challenges:/challenges \
+-v ./fix:/fix \
 -e FUZZING_ENGINE=libfuzzer \
 -e SANITIZER=coverage -e ARCHITECTURE=x86_64 -e HELPER=True -e FUZZING_LANGUAGE=c++ \
 -e 'CFLAGS=-fPIC -fvisibility=default  -Wl,-export-dynamic ' \
@@ -342,30 +339,29 @@ if result.returncode != 0:
 else:
     print("Container evaluate_in_docker created successfully")
 
-if not args.partial:
-    if args.debug:
-        df = df.sample(frac=1).reset_index(drop=True)[:100] 
-    for d in args.decompiler:
-        print(f'Decompiler: {d}')
+if args.debug:
+    df = df.sample(frac=1).reset_index(drop=True)[:100] 
+for d in args.decompiler:
+    print(f'Decompiler: {d}')
 
-        if d not in df.columns:
-            continue
+    if d not in df.columns:
+        continue
 
-        eval_result_df = pd.DataFrame(decompile_pass_rate(df, d, 64))
+    eval_result_df = pd.DataFrame(decompile_pass_rate(df, d, 64))
 
-        for opt, per_opt_df in eval_result_df.groupby('opt'):
-            compile_rate = per_opt_df['flag_compile'].mean()
-            run_rate = per_opt_df['flag_run'].mean()
-            warning_count = per_opt_df[
-                per_opt_df['flag_compile'] == 1
-            ]['warning_count'].mean()
+    for opt, per_opt_df in eval_result_df.groupby('opt'):
+        compile_rate = per_opt_df['flag_compile'].mean()
+        run_rate = per_opt_df['flag_run'].mean()
+        warning_count = per_opt_df[
+            per_opt_df['flag_compile'] == 1
+        ]['warning_count'].mean()
 
-            print(
-                f"Optimization {opt}: Compile Rate: {compile_rate:.4f}, Run Rate: {run_rate:.4f}, average_warning: {warning_count:.4f}")
-        print('-' * 30)
+        print(
+            f"Optimization {opt}: Compile Rate: {compile_rate:.4f}")
+    print('-' * 30)
 
-    rm_docker_cmd = "docker rm -f evaluate_in_docker"
-    result = subprocess.run(rm_docker_cmd, shell=True, capture_output=True, text=True)
-    if result.returncode ==0:
-        print("Container evaluate_in_docker removed successfully")
+rm_docker_cmd = "docker rm -f evaluate_in_docker"
+result = subprocess.run(rm_docker_cmd, shell=True, capture_output=True, text=True)
+if result.returncode ==0:
+    print("Container evaluate_in_docker removed successfully")
 

@@ -11,10 +11,8 @@ import pathlib
 import zipfile
 import shutil
 import json
-from concurrent.futures import ThreadPoolExecutor
-from datasets import DatasetDict, load_from_disk, Dataset
+from datasets import load_from_disk, Dataset
 import pandas as pd
-
 
 try:
     clang.cindex.Config.set_library_file(
@@ -22,7 +20,18 @@ try:
 except Exception:
     pass
 
-project_path = pathlib.Path('/mnt/data/oss-fuzz/build/functions')
+import argparse
+
+parser = argparse.ArgumentParser(description="Compile OSS-Fuzz projects")
+parser.add_argument('--oss_fuzz_path', type=str, default='/mnt/data/oss-fuzz', help='Path to the OSS-Fuzz directory')
+parser.add_argument('--output', type=str, default='./dataset/ossfuzz', help='Output directory for compiled datasets')
+
+args = parser.parse_args()
+
+oss_fuzz_path = pathlib.Path(args.oss_fuzz_path)
+OUTPUT = pathlib.Path(args.output)
+
+project_path = oss_fuzz_path / 'build' / 'functions'
 
 projects = [p for p in project_path.iterdir() if p.is_dir()]
 num_projects = len(projects)
@@ -50,15 +59,8 @@ def is_elf(file_path):
         file_magic_number = f.read(4)
         return file_magic_number == elf_magic_number
 
-def get_fuzzers(project):
-    oss_fuzz_path = pathlib.Path("/mnt/data/oss-fuzz")
-    output_path = oss_fuzz_path / 'build' / 'out' / project
-    fuzzers = [fuzzer.name for fuzzer in output_path.iterdir() if is_elf(fuzzer) and fuzzer.name != 'llvm-symbolizer']
-    
-    return fuzzers
 
 def covered_function_fuzzer(project, fuzzer):
-    oss_fuzz_path = pathlib.Path("/mnt/data/oss-fuzz")
     stats_path = oss_fuzz_path / 'build' / 'stats' / project / f'{fuzzer}_result.json'
     if not stats_path.exists():
         return {}, []
@@ -106,20 +108,6 @@ def extract_function_body(splited_contet, child):
 def process_project(project):
     test_list = []    
     project_name = str(project).split('/')[-1]
-    outpath = f'./ossfuzz_fix/{project_name}_eval_ossfuzz_fix'
-    if os.path.exists(outpath):
-        return
-    fuzzers = get_fuzzers(project_name)
-    all_functions = []
-    for fuzzer in fuzzers:
-        functions, info = covered_function_fuzzer(project_name, fuzzer)
-        import json
-
-        with open(f"count_info/{project_name}_functions.json", 'w') as json_file:
-            all_cnts = [(item['name'], item['count'], item['filenames']) for item in info]
-            json.dump(all_cnts, json_file)
-        all_functions.extend(list(functions.keys()))
-  
     if project.is_dir():
         if project.name == 'cpython3':
             return
@@ -135,8 +123,6 @@ def process_project(project):
                 return
             for function in find_functions(file):
                 func_name = function.spelling
-                if func_name not in all_functions:
-                    continue
                 if func_name != file.stem:
                     continue
                 if not function.is_definition():
@@ -162,12 +148,6 @@ def process_project(project):
                         'test': '',
                         'include': include_content,
                     })
-    print(f"length of test list:{len(test_list)}")
-    ds = datasets.Dataset.from_list(test_list)
-    print(f"length of test_list:{len(test_list)}")
-    ds = ds.add_column('idx', range(len(ds)))
-
-    ds.save_to_disk(outpath)
     return test_list
 
         
@@ -177,79 +157,36 @@ def process_project_linearly(project_path):
         result = process_project(project)
         if result is not None:
             test_lists.extend(result)
-    
 
 test_list = process_project_linearly(project_path)
-
-
-def merge_folders_to_dataset(base_folder, output_path):
-
-    all_ds = pd.DataFrame()
-    for folder_name in os.listdir(base_folder):
-        folder_path = os.path.join(base_folder, folder_name)
-        
-        # Check if it's a directory
-        if os.path.isdir(folder_path):
-            if os.path.exists(folder_path):
-                sub_ds = load_from_disk(folder_path).to_pandas()
-                all_ds = pd.concat([all_ds, sub_ds], ignore_index=True)
-       
-    dataset = Dataset.from_dict({'idx': range(len(all_ds))})
-    dataset = dataset.add_column('project', all_ds['project'].tolist())
-    dataset = dataset.add_column('file', all_ds['file'].tolist())
-    dataset = dataset.add_column('func', all_ds['func'].tolist())
-    dataset = dataset.add_column('test', all_ds['test'].tolist())
-    dataset = dataset.add_column('include', all_ds['include'].tolist())
-    dataset.save_to_disk(output_path)
-
-
-base_folder = 'ossfuzz_fix'
-output_path = os.path.join('./', 'oss_fuzz_merge_ds')
-
-# Call the function to merge folders into datasets and save them
-merge_folders_to_dataset(base_folder, output_path)
-
-ds = load_from_disk(output_path)
-project_list = ds['project']
-project_counts = {}
-for project in project_list:
-    if project in project_counts:
-        project_counts[project] += 1
-    else:
-        project_counts[project] = 1
-
-print("Project counts:")
-for project, count in project_counts.items():
-    print(f"Project: {project}, Count: {count}")
+ds = datasets.Dataset.from_list(test_list)
+ds = ds.add_column('idx', range(len(ds)))
+outpath = OUTPUT / 'eval'
+ds.save_to_disk(outpath)
 
 # Create a new dictionary to hold the sampled data
-sampled_data = {}
+# sampled_data = {}
 
-# Sample 50 items for each project
-for project in project_counts.keys():
-    # Assuming `ds` is a Dataset object that contains the data
-    project_data = ds.filter(lambda x: x['project'] == project)
-    sampled_items = project_data.shuffle(seed=42).select(range(min(50, len(project_data))))  # Sample up to 50 items
-    sampled_data[project] = sampled_items
+# # Sample 50 items for each project
+# for project in project_counts.keys():
+#     # Assuming `ds` is a Dataset object that contains the data
+#     project_data = ds.filter(lambda x: x['project'] == project)
+#     sampled_items = project_data.shuffle(seed=42).select(range(min(50, len(project_data))))  # Sample up to 50 items
+#     sampled_data[project] = sampled_items
 
-all_sampled_items = []
-for project, items in sampled_data.items():
-    all_sampled_items.extend(items)
+# all_sampled_items = []
+# for project, items in sampled_data.items():
+#     all_sampled_items.extend(items)
 
-new_dataset = Dataset.from_list(all_sampled_items)
-new_dataset.save_to_disk("./ossfuzz_sample50")
+# new_dataset = Dataset.from_list(all_sampled_items)
+# new_dataset.save_to_disk("./ossfuzz_sample50")
 
 
-BASE_DIR = Path(__file__).parent
-print(BASE_DIR)
-OUTPUT = BASE_DIR / "output_dataset"
 OUTPUT_BINAEY = OUTPUT / "binary"
 if not OUTPUT.exists():
     OUTPUT.mkdir()
 if not OUTPUT_BINAEY.exists():
     OUTPUT_BINAEY.mkdir()
-
-ds = datasets.load_from_disk('./ossfuzz_sample50')
 
 extra_flags = ' '.join([
     "-mno-sse",
@@ -317,5 +254,5 @@ res = tqdm_progress_map(compile, ds, 64)
 res = list(chain(*res))
 ds = datasets.Dataset.from_list(res)
 print(len(ds))
-ds.save_to_disk(str(OUTPUT / 'assembly'))
+ds.save_to_disk(str(OUTPUT / 'compiled_ds'))
 

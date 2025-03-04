@@ -11,18 +11,20 @@ import argparse
 import glob
 from pathlib import Path
 
-client = openai.AsyncClient(
-    base_url="http://localhost:8443/v1",
-    api_key="sk-123456"
-)
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Decompile with LLM")
     parser.add_argument("--dataset", type=str, required=True, help="Path to the dataset")
     parser.add_argument("--output", type=str, required=True, help="Path to the output directory")
     parser.add_argument("--model", type=str, required=True, help="Model name")
+    parser.add_argument("--key", type=str, required=True, help="Model key")
     return parser.parse_args()
 
 args = parse_arguments()
+
+client = openai.AsyncClient(
+    base_url="http://localhost:8443/v1",
+    api_key=args.key
+)
 
 def format_message(message, role):
     return f"<s>{role}\n{message}</s>\n"
@@ -91,9 +93,7 @@ async def main():
     non_idx = []
     inner_idx = 0
     begin_index = 0
-    print(len(ds))
     margin = 10
-    total_list = []
     for start in range(begin_index, len(ds), margin):
         inner_idx += margin
         decompiled_list = []
@@ -117,13 +117,6 @@ async def main():
         with open(output_file, 'a') as f:
             for item in decompiled_json:
                 f.write(json.dumps(item) + '\n')
-
-    if total_list:
-        with open(f"{outpath}/{start + margin}.json", 'w') as f:
-            f.write(json.dumps(total_list, indent=4))
-     
-
-
 
 if __name__ == '__main__':
     outpath = args.output

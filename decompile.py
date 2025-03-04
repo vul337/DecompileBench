@@ -20,10 +20,10 @@ BASE_DIR = Path(__file__).parent
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '--dataset', type=str,
-    default=str(BASE_DIR / "dataset" / "llm4decompile_eval"))
+    default=str(BASE_DIR / "compiled_ds"))
 parser.add_argument(
     "--output", type=str,
-    default=str(BASE_DIR / "dataset" / "llm4decompile_eval" / "llm4decompile_result"),
+    default=str(BASE_DIR / "decompile_result"),
 )
 parser.add_argument(
     "--only-dump-result", action="store_true",
@@ -57,56 +57,14 @@ client = DecompilerClient(
     target_url=HOST,
 )
 
-# DECOMPILERS = await client.get_decompilers_async()
 DECOMPILERS = [
     "angr", 
-    "binja", "dewolf", "ghidra",
+    "binja", 
+    "dewolf", 
+    "ghidra",
     "hexrays", 
     "retdec"
 ]
-
-
-def save_result():
-    global ds
-    tasks = client.get_completed_tasks()
-    
-    result_map = {}
-    
-    for task in tqdm(tasks):
-        try:
-            metadata = task['metadata']
-            result = list(task['result'].values())[0]
-
-            idx = metadata['idx']
-            decompiler = metadata['decompiler']
-            # if decompiler == 'hexrays':
-            #     import ipdb; ipdb.set_trace()
-            result_map.setdefault(
-                decompiler, ["" for _ in range(len(ds))]
-            )[idx] = result
-            
-        except Exception as e:
-            print(e)
-            pass
-    for key,value in result_map.items():
-        ds = ds.add_column(key, value)
-    ds.save_to_disk(args.output)
-
-from datasets import load_from_disk, concatenate_datasets
-
-# Load the two datasets
-def combine_result():
-    dataset_3 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_3')
-    dataset_2 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_2')
-    dataset_1 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/decompile_result_1')
-    # Concatenate the datasets
-    combined_dataset = concatenate_datasets([dataset_1, dataset_2, dataset_3])
-
-    # Save the combined dataset to disk
-    combined_dataset.save_to_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result')
-
-    print("Datasets concatenated and saved successfully.")
-
 
 
 async def submit_tasks():
@@ -120,41 +78,16 @@ async def submit_tasks():
         ])
         await client.save_task_queue()
 
-async def patch_empty():
-    ds1 = load_from_disk('/code/decompilebench-evaluation/decompileeval/output_dataset/combined_decompile_result')
-    for decompiler in DECOMPILERS:
-        await asyncio.gather(*[
-            asyncio.create_task(client.decompile_async(
-                row['path'], [hex(row['addr'])], decompiler,
-                save_task_queue=False,
-                idx=idx, decompiler=decompiler,
-            )) for idx, row in enumerate(ds1) if row[decompiler] == ''
-        ])
-
-async def main():
-    if not only_dump_result:
-        if not do_resume:
-            await submit_tasks()
-
-        print('Waiting for tasks to be completed')
-        await client.process_task_queue()
-    else:
-        await patch_empty()
-        await client.process_task_queue()
-    # save_result()
-
-def patch():
+def save_result():
     ds1 = load_from_disk(args.dataset)
     with open(RESULT, 'r') as f:
         data = json.load(f)
-    print(data[0].keys())
     result_map = {
         decompiler: ds1[decompiler]
         for decompiler in DECOMPILERS
     }
     for item in data:
         if 'result' in item:
-            
             idx = item['metadata']['idx']
             decompiler = item['metadata']['decompiler']
             if item['result'] != '' and ds1[idx][decompiler] == '':
@@ -167,6 +100,15 @@ def patch():
     for decompiler, result in result_map.items():
         ds1 = ds1.add_column(decompiler, result)
     ds1.save_to_disk(args.output)
-    print(ds1[406]['hexrays'])
 
-patch()
+async def main():
+    if not only_dump_result:
+        if not do_resume:
+            await submit_tasks()
+
+        print('Waiting for tasks to be completed')
+        await client.process_task_queue()
+    
+    save_result()
+
+asyncio.run(main())

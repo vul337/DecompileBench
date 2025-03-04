@@ -34,10 +34,7 @@ import random
 import pandas as pd
 from langchain.tools import BaseTool, StructuredTool, tool
 import pathlib
-from langchain_core.runnables import RunnablePassthrough
 from langchain_core.runnables import RunnableLambda
-# from pprint import pprint
-# from langgraph.graph import StateGraph, END, MessageGraph
 import os
 import pandas as pd
 import itertools
@@ -62,6 +59,7 @@ def parse_arguments():
     parser.add_argument("--dataset", type=str, required=True, help="Path to the dataset")
     parser.add_argument("--output", type=str, required=True, help="Path to the output directory")
     parser.add_argument("--model", type=str, required=True, help="Model name")
+    parser.add_argument("--key", type=str, required=True, help="Model key")
     return parser.parse_args()
 
 args = parse_arguments()
@@ -135,14 +133,14 @@ class EnforcePrefixJsonOutputParser(JsonOutputParser):
 if args.model == "qwen":
     llm = ChatOpenAI(model="Qwen/Qwen2.5-Coder-32B-Instruct",
 max_tokens= 8192,timeout=60 * 60, base_url="http://localhost:8443/v1",
-    api_key="sk-1234567890")
+    api_key=args.key)
 elif args.model=='gpt-4o-mini' or args.model == 'claude-3-5-sonnet-v2@20241022' or args.model == 'gpt-4o-2024-11-20':
     llm = ChatOpenAI(model=args.model,max_tokens= 4096,timeout=60 * 60, base_url="http://localhost:8443/v1",
-    api_key="sk-1234567890")
+    api_key=args.key)
 else:
     llm = ChatOpenAI(model="deepseek-coder",max_tokens= 8192, 
                  timeout=60 * 60,base_url="https://api.deepseek.com",
-                api_key="sk-1234567890")
+                api_key=args.key)
 
 json_output_parser = EnforcePrefixJsonOutputParser()
 
