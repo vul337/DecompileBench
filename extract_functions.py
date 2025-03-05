@@ -50,7 +50,7 @@ def extract_for_function_wrapper(generator: 'OSSFuzzDatasetGenerator', function_
 
 
 def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
-    print(f"Extracting functions for {generator.project}")
+    logger.info(f"Extracting functions for {generator.project}")
     tasks = []
     functions_path = pathlib.Path(
         generator.oss_fuzz_path) / 'build' / 'functions' / generator.project
@@ -58,8 +58,8 @@ def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
     for _, function_info in generator.functions.items():
         for function, source_path in function_info.items():
             tasks.append((generator, function, source_path))
-    print(f"Extracting {len(tasks)} functions")
-    Pool(1).starmap(extract_for_function_wrapper, tasks)
+    logger.info(f"Extracting {len(tasks)} functions")
+    Pool(os.cpu_count()).starmap(extract_for_function_wrapper, tasks)
 
 
 class OSSFuzzDatasetGenerator:
@@ -81,7 +81,8 @@ class OSSFuzzDatasetGenerator:
 
     def generate(self):
         if 'language' not in self.project_info or self.project_info['language'] not in ['c', 'c++']:
-            print(f"Skipping {self.project} as it is not a C/C++ project")
+            logger.info(
+                f"Skipping {self.project} as it is not a C/C++ project")
             return
         self.build_fuzzer()
         self.run_coverage()
@@ -101,7 +102,7 @@ class OSSFuzzDatasetGenerator:
                   for key, value in self.config['env'].items()], [])
         cmd = ['python3', 'infra/helper.py', 'build_fuzzers',
                '--clean', '--sanitizer', sanitizer, self.project]
-        print(f"cmd: {' '.join(cmd)}")
+        logger.info(f"cmd: {' '.join(cmd)}")
         build_fuzzer_res = subprocess.run(cmd, cwd=cwd, stderr=subprocess.PIPE)
         if build_fuzzer_res.returncode != 0:
             logger.info(
@@ -119,7 +120,7 @@ class OSSFuzzDatasetGenerator:
         corpus_zip = pathlib.Path(
             self.oss_fuzz_path) / 'build' / 'out' / self.project / f'{fuzzer}_seed_corpus.zip'
         if not corpus_zip.exists():
-            print(
+            logger.info(
                 f"coverage failed: Corpus zip file {corpus_zip} does not exist")
 
             return
@@ -130,7 +131,8 @@ class OSSFuzzDatasetGenerator:
                f'--fuzz-target={fuzzer}', f'--corpus-dir={corpus_dir}', '--no-serve']
         cov_ret = subprocess.run(cmd, cwd=cwd)
         if cov_ret.returncode != 0:
-            print(f"Coverage failed for {fuzzer}, {cov_ret.stderr.decode()}")
+            logger.info(
+                f"Coverage failed for {fuzzer}, {cov_ret.stderr.decode()}")
 
         else:
             logger.info(f"Coverage success for {fuzzer}")
@@ -160,13 +162,14 @@ class OSSFuzzDatasetGenerator:
         return functions
 
     def extract_for_function(self, function_name, source_path):
-        print(f"Extracting function {function_name} from {source_path}")
+        logger.info(f"Extracting function {function_name} from {source_path}")
         cmd = self.compile_command(source_path)
         if cmd is None:
-            print(f"Compile command for extracting {source_path} not found")
+            logger.info(
+                f"Compile command for extracting {source_path} not found")
             return
         else:
-            print(f"Compile command for extracting {source_path} found")
+            logger.info(f"Compile command for extracting {source_path} found")
 
         self.clang_and_extract(cmd, function_name)
 
@@ -176,18 +179,20 @@ class OSSFuzzDatasetGenerator:
         compile_commands_path = pathlib.Path(
             self.oss_fuzz_path) / 'build' / 'work' / self.project / 'compile_commands.json'
         if not compile_commands_path.exists():
-            print(
+            logger.info(
                 f"Compile commands path {compile_commands_path} does not exist, {compile_commands_path}")
             return None
         else:
-            print(f"Compile commands path {compile_commands_path} exists")
+            logger.info(
+                f"Compile commands path {compile_commands_path} exists")
         with open(compile_commands_path, 'r') as f:
             compile_commands = json.load(f)
         commands = {}
         for item in compile_commands:
             commands[item['file']] = item
         if source_path not in commands:
-            print(f"Source path {source_path} not found in compile commands")
+            logger.info(
+                f"Source path {source_path} not found in compile commands")
             return None
         self._commands = commands
         return commands[source_path]
@@ -285,7 +290,7 @@ class OSSFuzzDatasetGenerator:
             subprocess.run(cmd)
 
         cmd = ['docker', 'rm', '-f', f'{self.project}']
-        result = subprocess.run(cmd)
+        result = subprocess.run(cmd, capture_output=True)
         cmd = [
             'docker',
             'run',
@@ -343,7 +348,7 @@ class OSSFuzzDatasetGenerator:
             raise Exception(
                 f"Failed to start docker container for {self.project}")
         else:
-            print(f"Started docker container for {self.project}")
+            logger.info(f"Started docker container for {self.project}")
         return self
 
         chmod_cmd = ['docker', 'exec', f'{self.project}',
@@ -373,7 +378,7 @@ class OSSFuzzProjects:
         for project in self.projects:
             try:
                 generator = OSSFuzzDatasetGenerator(self.config_path, project)
-                print(f"Generating {project}")
+                logger.info(f"Generating {project}")
                 result = generator.generate()
                 final_result[project] = result
             except KeyboardInterrupt:
