@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--config', type=str,
                         help='Path to the configuration file')
     parser.add_argument('--project', type=str,
-                        help='Name of the project', default=None)
+                        help='Name of the projects, separated by ","', default=None)
     parser.add_argument('--worker-count', type=int,
                         help='Number of workers to use', default=os.cpu_count())
     return parser.parse_args()
@@ -380,7 +380,7 @@ class OSSFuzzProjects:
         self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
         self.projects = list(
             os.listdir(self.projects_path)
-        ) if project is None else [project]
+        ) if project is None else project.split(',')
 
     def gen(self):
         final_result = {}
