@@ -1,4 +1,4 @@
-oss_fuzz_path: /mnt/data/oss-fuzz
+oss_fuzz_path: ./oss-fuzz
 env: 
   CFLAGS: '-fPIC -fvisibility=default  -Wl,--export-dynamic'
   CXXFLAGS: '-fPIC -fvisibility=default  -Wl,--export-dynamic'
