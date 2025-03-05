@@ -4,15 +4,26 @@ This repository provides scripts and tools for evaluating the performance of dec
 
 ## Preparation
 
-To begin, download the `oss-fuzz` project and compile all projects to obtain the fuzzers or project binaries.
-
-For evaluating each function within a project, a Docker container is utilized. The base image for all Docker containers is `oss-fuzz`'s `base_builder`. We have modified the `base_builder` Dockerfile to include `bear` and `clang-extract`.
+To begin, clone the `oss-fuzz` project.
 
 ```shell
+git clone https://github.com/google/oss-fuzz.git
+```
+
+Then we modify the `base-builder` Dockerfile to include `bear` and `clang-extract` to support the function extraction.
+
+```shell
+# Add bear config
+cp bear_config.json oss-fuzz/infra/base-images/base-builder/
+
+# Download prebuilt clang-extract
+wget 'https://seafile.vul337.team:8443/f/1f11e8c4a8eb46dcb981/?dl=1' -O oss-fuzz/infra/base-images/base-builder/clang-extract.tar.gz
+
+# Add bear and clang-extract to base-builder Dockerfile
 cd oss-fuzz
 cat >> infra/base-images/base-builder/Dockerfile <<EOF
 RUN apt install -y pkg-config python3-apt libssl-dev ninja-build && \
-    git clone https://github.com/5c4lar/Bear -b main-for-pr-to-original-repo --depth 1 && \
+    git clone https://github.com/rizsotto/Bear -b master --depth 1 && \
     cd Bear && \
     cmake -DENABLE_UNIT_TESTS=OFF -DENABLE_FUNC_TESTS=OFF -GNinja -B build && \
     ninja -C build install && \
@@ -25,6 +36,11 @@ RUN patchelf --set-interpreter "/src/clang-extract/ld-linux-x86-64.so.2" /src/cl
 
 CMD ["bear", "--config", "/src/bear_config.json", "--output", "/work/compile_commands.json", "--", "compile"]
 EOF
+```
+
+Then we build the Docker image.
+
+```shell
 python infra/helper.py build_image base-builder
 ```
 

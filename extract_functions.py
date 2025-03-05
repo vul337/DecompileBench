@@ -1,27 +1,30 @@
 
-import logging
 import argparse
-import subprocess
-import yaml
-import pathlib
-import zipfile
-import json
 import copy
-import shutil
 import importlib
-import tqdm
+import json
+import logging
 import os
-import stat
-from multiprocessing import Pool
-import re
-import tempfile
+import pathlib
 import random
+import re
+import shutil
+import stat
+import subprocess
+import tempfile
+import zipfile
+from multiprocessing import Pool
+
 import clang.cindex
 import lief
+import tqdm
+import yaml
 from keystone import *
+from loguru import logger
 
 clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
 index = clang.cindex.Index.create()
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -40,8 +43,13 @@ def is_elf(file_path):
         file_magic_number = f.read(4)
         return file_magic_number == elf_magic_number
 
-pool = Pool(96)
-def parallel_extract(generator):
+
+def extract_for_function_wrapper(generator: 'OSSFuzzDatasetGenerator', function_name, source_path):
+    """Wrapper function to call extract_for_function as a static method."""
+    return generator.extract_for_function(function_name, source_path)
+
+
+def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
     print(f"Extracting functions for {generator.project}")
     tasks = []
     functions_path = pathlib.Path(
@@ -51,7 +59,8 @@ def parallel_extract(generator):
         for function, source_path in function_info.items():
             tasks.append((generator, function, source_path))
     print(f"Extracting {len(tasks)} functions")
-    pool.starmap(OSSFuzzDatasetGenerator.extract_for_function, tasks)
+    Pool(1).starmap(extract_for_function_wrapper, tasks)
+
 
 class OSSFuzzDatasetGenerator:
     def __init__(self, config_path, project):
@@ -59,7 +68,8 @@ class OSSFuzzDatasetGenerator:
             self.config = yaml.safe_load(f)
         self.project = project
         self.oss_fuzz_path = self.config['oss_fuzz_path']
-        self.project_info_path = pathlib.Path(self.oss_fuzz_path) / 'projects' / project / 'project.yaml'
+        self.project_info_path = pathlib.Path(
+            self.oss_fuzz_path) / 'projects' / project / 'project.yaml'
         with open(self.project_info_path, 'r') as f:
             self.project_info = yaml.safe_load(f)
         self._fuzzers = None
@@ -93,8 +103,9 @@ class OSSFuzzDatasetGenerator:
                '--clean', '--sanitizer', sanitizer, self.project]
         print(f"cmd: {' '.join(cmd)}")
         build_fuzzer_res = subprocess.run(cmd, cwd=cwd, stderr=subprocess.PIPE)
-        if build_fuzzer_res.returncode!=0:
-            logger.info(f"--- build_fuzzer_res for {self.project}: {build_fuzzer_res.stderr.decode()}")
+        if build_fuzzer_res.returncode != 0:
+            logger.info(
+                f"--- build_fuzzer_res for {self.project}: {build_fuzzer_res.stderr.decode()}")
 
     def run_coverage_fuzzer(self, fuzzer):
         stats_result_path = pathlib.Path(
@@ -110,7 +121,7 @@ class OSSFuzzDatasetGenerator:
         if not corpus_zip.exists():
             print(
                 f"coverage failed: Corpus zip file {corpus_zip} does not exist")
-           
+
             return
         with zipfile.ZipFile(corpus_zip, 'r') as zip_ref:
             zip_ref.extractall(corpus_dir)
@@ -120,7 +131,7 @@ class OSSFuzzDatasetGenerator:
         cov_ret = subprocess.run(cmd, cwd=cwd)
         if cov_ret.returncode != 0:
             print(f"Coverage failed for {fuzzer}, {cov_ret.stderr.decode()}")
-            
+
         else:
             logger.info(f"Coverage success for {fuzzer}")
         if not stats_result_path.parent.exists():
@@ -181,9 +192,8 @@ class OSSFuzzDatasetGenerator:
         self._commands = commands
         return commands[source_path]
 
-
     def clang_and_extract(self, cmd_info, function_name):
-       
+
         args = cmd_info['arguments']
         if args[1:4] == [
             "-L/functions",
@@ -224,7 +234,7 @@ class OSSFuzzDatasetGenerator:
                     '/src/clang-extract/clang-extract', temp_file.name,
                     f'-DCE_EXTRACT_FUNCTIONS={function_name}',
                     f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
-                    '-c' # Add -c flag to generate exactly one compiler job
+                    '-c'  # Add -c flag to generate exactly one compiler job
                 ]
             except Exception as e:
                 return
@@ -236,7 +246,8 @@ class OSSFuzzDatasetGenerator:
             except Exception as e:
                 logger.error(f"extract error: {e}")
             if result.returncode != 0:
-                logger.error(f"clang-extract failed: /functions/{function_name}.c")
+                logger.error(
+                    f"clang-extract failed: /functions/{function_name}.c")
                 return
 
     @property
@@ -265,13 +276,14 @@ class OSSFuzzDatasetGenerator:
             self.oss_fuzz_path) / 'build' / 'challenges' / self.project
         if not challenges_path.exists():
             challenges_path.mkdir(parents=True)
-       
-        fuzzers_path = pathlib.Path(self.oss_fuzz_path) / 'build' / 'out' / self.project
+
+        fuzzers_path = pathlib.Path(
+            self.oss_fuzz_path) / 'build' / 'out' / self.project
         if len(list(fuzzers_path.glob('*.zip'))) == 0:
-            cmd = ['python', f'{self.oss_fuzz_path}/infra/helper.py', 'build_fuzzers', '--clean', '--sanitizer', 'coverage', 
-            self.project]
+            cmd = ['python', f'{self.oss_fuzz_path}/infra/helper.py', 'build_fuzzers', '--clean', '--sanitizer', 'coverage',
+                   self.project]
             subprocess.run(cmd)
-            
+
         cmd = ['docker', 'rm', '-f', f'{self.project}']
         result = subprocess.run(cmd)
         cmd = [
@@ -334,8 +346,8 @@ class OSSFuzzDatasetGenerator:
             print(f"Started docker container for {self.project}")
         return self
 
-        chmod_cmd = ['docker', 'exec', f'{self.project}', 
-        'bash', '-c', 'chmod 755 /out/*.zip']
+        chmod_cmd = ['docker', 'exec', f'{self.project}',
+                     'bash', '-c', 'chmod 755 /out/*.zip']
         chmod_result = subprocess.run(chmod_cmd)
         if chmod_result.returncode != 0:
             raise Exception(f"Failed to chmod 755 /out/*.zip")
@@ -346,6 +358,7 @@ class OSSFuzzDatasetGenerator:
 
         subprocess.run(cmd)
 
+
 class OSSFuzzProjects:
     def __init__(self, config_path):
         self.config_path = config_path
@@ -353,8 +366,7 @@ class OSSFuzzProjects:
             self.config = yaml.safe_load(f)
         self.oss_fuzz_path = self.config['oss_fuzz_path']
         self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
-        self.projects = list(set([dataset[i]['project']
-                             for i in range(len(dataset))]))
+        self.projects = list(os.listdir(self.projects_path))
 
     def gen(self):
         final_result = {}
@@ -369,11 +381,12 @@ class OSSFuzzProjects:
             except:
                 continue
 
+
 def main():
     args = parse_args()
     projects = OSSFuzzProjects(args.config)
     projects.gen()
 
+
 if __name__ == '__main__':
     main()
-
