@@ -95,6 +95,7 @@ Before evaluation, integrate all decompiler outputs, including those from LLMs, 
 python evaluate_rsr.py --decompile_result ./decompiled_ds_all --decompiler all --ossfuzz_path your_oss_fuzz_path
 ```
 
+Before running, you can set the model's URL (BASE_URL) and API key (API_KEY) in the environment variables.
 Enable the debug parameter to print error messages for specific data. This script recompiles the specified decompiler outputs in Docker, applies fixes, and reports success rates across different optimization levels. Successfully compiled functions are stored as shared libraries in `f'{args.ossfuzz_path}/build/challenges'` for further evaluation.
 
 To assess coverage differences before and after replacing with decompiled code, run:
@@ -108,7 +109,7 @@ This script generates coverage reports for each function by linking the referenc
 Finally, evaluate code quality by running:
 
 ```shell
-python code_quality.py --run --model your_model --dataset ./decompiled_ds_all --url your_url --api_key your_key --output your_output_path
+python code_quality.py --run --model your_model --dataset ./decompiled_ds_all --output your_output_path
 ```
 
 This script conducts an LLM arena evaluation across 12 dimensions, computing Elo scores to assess code quality. The output path will contain all scoring information in PKL files. Use the `rate` parameter instead of `run` to calculate Elo scores for different aspects and overall performance.

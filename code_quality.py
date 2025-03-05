@@ -292,9 +292,8 @@ parser.add_argument('--run', action='store_true')
 parser.add_argument('--rate', action='store_true')
 parser.add_argument('--model', type=str, default='Qwen/Qwen2.5-Coder-32B-Instruct')
 parser.add_argument('--dataset', type=str, default='./decompiled_ds_all')
-parser.add_argument('--url', type=str, default='http://localhost:8443/v1')
-parser.add_argument('--api_key', type=str, default='sk-123456')
 parser.add_argument('--output', type=str, default='./code_quality')
+parser.add_argument('--calibrate_elo', type=int, default=1141.86)
 args = parser.parse_args()
 
 def json5_loads(x, *args, **kwargs):
@@ -353,7 +352,7 @@ class EnforcePrefixJsonOutputParser(JsonOutputParser):
                 raise OutputParserException(msg, llm_output=text) from e
 
 llm = ChatOpenAI(model=args.model,
-max_tokens= 8192,timeout=60 * 60, base_url=args.url, api_key=args.api_key)
+max_tokens= 8192,timeout=60 * 60, base_url=os.getenv("BASE_URL"), api_key=os.getenv("API_KEY"))
 json_output_parser = EnforcePrefixJsonOutputParser()
 def parse_generation(text,partial: bool = False):
     text = text.strip()
@@ -735,7 +734,7 @@ def compute_elo(save_dir='./'):
         lr.fit(X, Y, sample_weight=sample_weights)
         elo_scores = SCALE * lr.coef_[0] + INIT_RATING
         if calibrate_model in models.index:
-            elo_scores += 1141.86 - elo_scores[models[calibrate_model]]
+            elo_scores += args.calibrate_elo - elo_scores[models[calibrate_model]]
         return pd.Series(elo_scores, index=models.index).sort_values(ascending=False)
 
     BOOTSTRAP_ROUNDS = 100  # 1000
