@@ -294,7 +294,7 @@ class OSSFuzzDatasetGenerator:
         target_libs = {}
         for decompiler in self.decompilers:
             for option in self.options:
-                target_lib_path = pathlib.Path('/mnt/data/oss-fuzz') / 'build' / 'challenges' / \
+                target_lib_path = pathlib.Path(self.oss_fuzz_path) / 'build' / 'challenges' / \
                     self.project / function_name / option / decompiler / 'libfunction.so'
                 if target_lib_path.exists():
                     target_libs[f'{decompiler}-{option}'] = f'/challenges/{function_name}/{option}/{decompiler}'

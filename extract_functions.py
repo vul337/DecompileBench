@@ -12,6 +12,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+from typing import Optional
 import zipfile
 from multiprocessing import Pool
 
@@ -29,9 +30,12 @@ index = clang.cindex.Index.create()
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Generate the dataset for a given project in oss-fuzz')
-    parser.add_argument('--project', type=str, help='Name of the project')
     parser.add_argument('--config', type=str,
                         help='Path to the configuration file')
+    parser.add_argument('--project', type=str,
+                        help='Name of the project', default=None)
+    parser.add_argument('--worker-count', type=int,
+                        help='Number of workers to use', default=os.cpu_count())
     return parser.parse_args()
 
 
@@ -49,6 +53,9 @@ def extract_for_function_wrapper(generator: 'OSSFuzzDatasetGenerator', function_
     return generator.extract_for_function(function_name, source_path)
 
 
+WORKER_COUNT = os.cpu_count()
+
+
 def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
     logger.info(f"Extracting functions for {generator.project}")
     tasks = []
@@ -59,7 +66,7 @@ def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
         for function, source_path in function_info.items():
             tasks.append((generator, function, source_path))
     logger.info(f"Extracting {len(tasks)} functions")
-    Pool(os.cpu_count()).starmap(extract_for_function_wrapper, tasks)
+    Pool(WORKER_COUNT).starmap(extract_for_function_wrapper, tasks)
 
 
 class OSSFuzzDatasetGenerator:
@@ -365,13 +372,15 @@ class OSSFuzzDatasetGenerator:
 
 
 class OSSFuzzProjects:
-    def __init__(self, config_path):
+    def __init__(self, config_path, project: Optional[str] = None):
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
         self.oss_fuzz_path = self.config['oss_fuzz_path']
         self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
-        self.projects = list(os.listdir(self.projects_path))
+        self.projects = list(
+            os.listdir(self.projects_path)
+        ) if project is None else [project]
 
     def gen(self):
         final_result = {}
@@ -389,7 +398,9 @@ class OSSFuzzProjects:
 
 def main():
     args = parse_args()
-    projects = OSSFuzzProjects(args.config)
+    global WORKER_COUNT
+    WORKER_COUNT = args.worker_count
+    projects = OSSFuzzProjects(args.config, args.project)
     projects.gen()
 
 
