@@ -68,19 +68,19 @@ This script interfaces with a server hosting six traditional decompilers, such a
 To generate decompiled results using general models, execute:
 
 ```shell
-python general_llm.py --dataset ./compiled_ds --output ./test.jsonl --model qwen --key your_key
+python general_llm.py --dataset ./compiled_ds --output ./test --model Qwen/Qwen2.5-Coder-32B-Instruct
 ```
 
 This script queries general large language models to produce refined decompiled code, employing few-shot learning techniques as specified in `prompt.md`.
 
 - `dataset`: Path to the dataset output from the previous compilation step.
-- `output`: Path for the output JSONL file.
+- `output`: Parent path for the output JSONL file.
 - `model`: Choose from `qwen`, `gpt-4o-mini`, `claude-3-5-sonnet-v2@20241022`, `gpt-4o-2024-11-20`, or `deepseek-coder`.
 
 For specialized models hosted locally, run:
 
 ```shell
-python specialized_llm.py --dataset ./compiled_ds --output ./test.jsonl --model LLM4Binary/llm4decompile-22b-v2 --key your_key
+python specialized_llm.py --dataset ./compiled_ds --output ./test --model LLM4Binary/llm4decompile-22b-v2
 ```
 
 The parameters are consistent with the previous section.

@@ -324,7 +324,7 @@ else:
 
 docker_cmd = f'''docker run -dit --privileged --rm --name evaluate_in_docker \
 -v {args.ossfuzz_path}/build/challenges:/challenges \
--v ./fix:/fix \
+-v f'{os.getcwd()}/fix:/fix' \
 -e FUZZING_ENGINE=libfuzzer \
 -e SANITIZER=coverage -e ARCHITECTURE=x86_64 -e HELPER=True -e FUZZING_LANGUAGE=c++ \
 -e 'CFLAGS=-fPIC -fvisibility=default  -Wl,-export-dynamic ' \

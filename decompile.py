@@ -10,10 +10,7 @@ from collections import defaultdict
 import json
 import argparse
 
-HOST = "http://localhost:12337"
-key="sk-123456"
-
-
+HOST = os.getenv("HOST")
 BASE_DIR = Path(__file__).parent
 
 
@@ -39,9 +36,9 @@ parser.add_argument(
 args = parser.parse_args()
 
 
-RESULT =f"tmp_results/result_patch.json.2"
-if not os.path.exists(RESULT):
-    os.makedirs("tmp_results", exist_ok=True)
+RESULT =f"{args.output}/result.jsonl"
+if not os.path.exists(args.output):
+    os.makedirs(args.output, exist_ok=True)
 only_dump_result = args.only_dump_result
 
 print(f'only_dump_result: {only_dump_result}')

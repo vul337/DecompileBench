@@ -295,11 +295,11 @@ class OSSFuzzDatasetGenerator:
             '-v',
             f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
             '-v',
-            f'/mnt/data/qsl/oss-fuzz/build/dummy:/dummy',
+            f'{self.oss_fuzz_path}/build/dummy:/dummy',
             '-v',
             f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
             '-v',
-            f'/home/yuxincui/code/decompilebench-evaluation/decompileeval/decompileeval/fix:/fix',
+            f'{os.getcwd()}/fix:/fix',
 
             '-e',
             'FUZZING_ENGINE=libfuzzer',

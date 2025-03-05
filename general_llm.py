@@ -59,7 +59,6 @@ def parse_arguments():
     parser.add_argument("--dataset", type=str, required=True, help="Path to the dataset")
     parser.add_argument("--output", type=str, required=True, help="Path to the output directory")
     parser.add_argument("--model", type=str, required=True, help="Model name")
-    parser.add_argument("--key", type=str, required=True, help="Model key")
     return parser.parse_args()
 
 args = parse_arguments()
@@ -129,19 +128,7 @@ class EnforcePrefixJsonOutputParser(JsonOutputParser):
                 msg = f"Invalid json output: {text}"
                 raise OutputParserException(msg, llm_output=text) from e
 
-
-if args.model == "qwen":
-    llm = ChatOpenAI(model="Qwen/Qwen2.5-Coder-32B-Instruct",
-max_tokens= 8192,timeout=60 * 60, base_url="http://localhost:8443/v1",
-    api_key=args.key)
-elif args.model=='gpt-4o-mini' or args.model == 'claude-3-5-sonnet-v2@20241022' or args.model == 'gpt-4o-2024-11-20':
-    llm = ChatOpenAI(model=args.model,max_tokens= 4096,timeout=60 * 60, base_url="http://localhost:8443/v1",
-    api_key=args.key)
-else:
-    llm = ChatOpenAI(model="deepseek-coder",max_tokens= 8192, 
-                 timeout=60 * 60,base_url="https://api.deepseek.com",
-                api_key=args.key)
-
+llm = ChatOpenAI(model=args.model, max_tokens= 8192,timeout=60 * 60, base_url=os.getenv("BASE_URL"), api_key=os.getenv("API_KEY"))
 json_output_parser = EnforcePrefixJsonOutputParser()
 
 # %%
@@ -316,7 +303,7 @@ def main(df,outpath):
 if __name__ == "__main__":
     from datasets import load_from_disk
     df = load_from_disk(args.dataset)
-    outpath = f'{args.output}'
+    outpath = f'{args.output}/{args.model}.jsonl'
 
     try:
         df = df.add_column("real_idx",range(0,len(df)))

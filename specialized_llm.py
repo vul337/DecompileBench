@@ -16,14 +16,13 @@ def parse_arguments():
     parser.add_argument("--dataset", type=str, required=True, help="Path to the dataset")
     parser.add_argument("--output", type=str, required=True, help="Path to the output directory")
     parser.add_argument("--model", type=str, required=True, help="Model name")
-    parser.add_argument("--key", type=str, required=True, help="Model key")
     return parser.parse_args()
 
 args = parse_arguments()
 
 client = openai.AsyncClient(
-    base_url="http://localhost:8443/v1",
-    api_key=args.key
+    base_url=os.getenv("BASE_URL"),
+    api_key=os.getenv("API_KEY")
 )
 
 def format_message(message, role):
@@ -45,7 +44,7 @@ async def generate(client, addr, code, opt):
             prompt=prompt_format_decompile(code,opt,model=args.model),
             model=args.model,
             max_tokens=4096,
-            temperature=0.1,
+            temperature=0.7,
             stop=["<|im_end|>", "</s>"]
         )
     except Exception as e:
@@ -88,7 +87,7 @@ async def main():
     else:
         src_dec = 'hexrays'
 
-    output_file = f"{outpath}/llm4decompile.jsonl"
+    output_file = f"{outpath}/{args.model}.jsonl"
     decompiled_list = []
     non_idx = []
     inner_idx = 0
