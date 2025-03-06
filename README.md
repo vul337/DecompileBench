@@ -18,26 +18,15 @@ wget 'https://seafile.vul337.team:8443/f/1f11e8c4a8eb46dcb981/?dl=1' -O oss-fuzz
 
 # Add bear and clang-extract to base-builder Dockerfile
 cd oss-fuzz
-cat >> infra/base-images/base-builder/Dockerfile <<EOF
-RUN apt install -y pkg-config python3-apt libssl-dev ninja-build && \
-    git clone https://github.com/rizsotto/Bear -b master --depth 1 && \
-    cd Bear && \
-    cmake -DENABLE_UNIT_TESTS=OFF -DENABLE_FUNC_TESTS=OFF -GNinja -B build && \
-    ninja -C build install && \
-    cd .. && \
-    rm -rf Bear
-
-ADD clang-extract.tar.gz /src/clang-extract
-RUN patchelf --set-interpreter "/src/clang-extract/ld-linux-x86-64.so.2" /src/clang-extract/clang-extract
-
-CMD ["bear", "--output", "/work/compile_commands.json", "--", "compile"]
-EOF
+git checkout 4bca88f3a369679336485181961db305161fe240
+git apply ../oss-fuzz-patch/*.diff
 ```
 
 Then we build the Docker image.
 
 ```shell
-python infra/helper.py build_image base-builder
+python infra/helper.py build_image base-builder --cache --no-pull
+python infra/helper.py build_image base-runner --cache --no-pull
 ```
 
 ## Extract Functions
