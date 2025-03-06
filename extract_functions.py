@@ -19,18 +19,6 @@ clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
 index = clang.cindex.Index.create()
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description='Generate the dataset for a given project in oss-fuzz')
-    parser.add_argument('--config', type=str,
-                        help='Path to the configuration file')
-    parser.add_argument('--project', type=str,
-                        help='Name of the projects, separated by ","', default=None)
-    parser.add_argument('--worker-count', type=int,
-                        help='Number of workers to use', default=os.cpu_count())
-    return parser.parse_args()
-
-
 def is_elf(file_path):
     if file_path.is_dir():
         return False
@@ -62,13 +50,12 @@ def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
 
 
 class OSSFuzzDatasetGenerator:
-    def __init__(self, config_path, project):
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
-        self.project = project
-        self.oss_fuzz_path = self.config['oss_fuzz_path']
-        self.project_info_path = pathlib.Path(
-            self.oss_fuzz_path) / 'projects' / project / 'project.yaml'
+    def __init__(self, config, project):
+        self.config = config
+        self.project: str = project
+        self.oss_fuzz_path = pathlib.Path(self.config['oss_fuzz_path'])
+        self.project_info_path = self.oss_fuzz_path / \
+            'projects' / project / 'project.yaml'
         with open(self.project_info_path, 'r') as f:
             self.project_info = yaml.safe_load(f)
         self._fuzzers = None
@@ -84,70 +71,83 @@ class OSSFuzzDatasetGenerator:
                 f"Skipping {self.project} as it is not a C/C++ project")
             return
         self.build_fuzzer()
-        self.run_coverage()
+
+        for fuzzer in self.fuzzers:
+            self.run_coverage_fuzzer(fuzzer)
+
         with self:
             parallel_extract(self)
 
     def build_fuzzer(self):
-        output_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project
-        work_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'work' / self.project / 'compile_commands.json'
-        if output_path.exists() and work_path.exists():
+        output_path = self.oss_fuzz_path / 'build' / 'out' / self.project
+        compile_commands_path = self.oss_fuzz_path / 'build' / \
+            'work' / self.project / 'compile_commands.json'
+        if output_path.exists() and compile_commands_path.exists():
             logger.info(f"Skipping build for {self.project}")
             return
-        cwd = self.oss_fuzz_path
-        sanitizer = ','.join(self.config['sanitizer'])
-        env = sum([['-e', f'{key}={value}']
-                  for key, value in self.config['env'].items()], [])
-        cmd = ['python3', 'infra/helper.py', 'build_fuzzers',
-               '--clean', '--sanitizer', sanitizer, self.project]
-        logger.info(f"cmd: {' '.join(cmd)}")
-        build_fuzzer_res = subprocess.run(cmd, cwd=cwd, stderr=subprocess.PIPE)
-        if build_fuzzer_res.returncode != 0:
-            logger.info(
-                f"build_fuzzer failed for {self.project}")
-            print(build_fuzzer_res.stdout.decode())
-            print(build_fuzzer_res.stderr.decode())
-            raise Exception(f"Failed to build fuzzer for {self.project}")
-        else:
-            logger.info(f"Build success for {self.project}")
 
-    def run_coverage_fuzzer(self, fuzzer):
-        stats_result_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'stats' / self.project / f'{fuzzer}_result.json'
-        stats_path = pathlib.Path(self.oss_fuzz_path) / 'build' / \
-            'out' / self.project / 'fuzzer_stats' / f'{fuzzer}.json'
+        sanitizer = ','.join(self.config['sanitizer'])
+        cmd = [
+            'python3', 'infra/helper.py',
+            'build_fuzzers',
+            '--clean',
+            '--sanitizer', sanitizer,
+            self.project,
+        ]
+
+        logger.info(f"build_fuzzer with cmd: {' '.join(cmd)}")
+        subprocess.run(cmd, cwd=str(
+            self.oss_fuzz_path), stderr=subprocess.PIPE, check=True)
+        logger.info(f"Build success for {self.project}")
+
+    def run_coverage_fuzzer(self, fuzzer: str):
+        stats_result_path = self.oss_fuzz_path / 'build/stats' / \
+            self.project / f'{fuzzer}_result.json'
+        stats_path = self.oss_fuzz_path / 'build/out' / \
+            self.project / 'fuzzer_stats' / f'{fuzzer}.json'
+
         if stats_result_path.exists():
+            logger.info(
+                f"Skipping coverage for {fuzzer} as it already exists")
             return
-        corpus_dir = pathlib.Path(self.oss_fuzz_path) / \
+        corpus_dir = self.oss_fuzz_path / \
             'build' / 'corpus' / self.project / fuzzer
         corpus_zip = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project / f'{fuzzer}_seed_corpus.zip'
+            self.oss_fuzz_path) / 'build/out' / self.project / f'{fuzzer}_seed_corpus.zip'
+
         if not corpus_zip.exists():
-            logger.info(
-                f"coverage failed: Corpus zip file {corpus_zip} does not exist")
-
+            logger.warning(
+                f"Coverage skip: Corpus zip file {corpus_zip} does not exist")
             return
-        with zipfile.ZipFile(corpus_zip, 'r') as zip_ref:
-            zip_ref.extractall(corpus_dir)
-        cwd = self.oss_fuzz_path
-        cmd = ['python3', 'infra/helper.py', 'coverage', self.project,
-               f'--fuzz-target={fuzzer}', f'--corpus-dir={corpus_dir}', '--no-serve']
-        cov_ret = subprocess.run(cmd, cwd=cwd)
-        if cov_ret.returncode != 0:
-            logger.info(
-                f"Coverage failed for {fuzzer}, {cov_ret.stderr.decode()}")
 
-        else:
-            logger.info(f"Coverage success for {fuzzer}")
+        # with zipfile.ZipFile(corpus_zip, 'r') as zip_ref:
+        #     zip_ref.extractall(corpus_dir)
+
+        # Use docker to extract the corpus to avoid permission issues
+        unzip_cmd = [
+            'docker', 'run', '--rm',
+            '-v', f'{self.oss_fuzz_path.resolve()}:{self.oss_fuzz_path.resolve()}',
+            '-v', f'{corpus_zip.resolve()}:/corpus.zip',
+            'alpine',
+            'sh', '-c',
+            f'mkdir -p {corpus_dir.resolve()} && unzip /corpus.zip -o -q -d {corpus_dir.resolve()}'
+        ]
+        logger.info(f"Extracting corpus for {fuzzer}: {' '.join(unzip_cmd)}")
+        subprocess.run(unzip_cmd, check=True)
+        cwd = self.oss_fuzz_path
+        cmd = [
+            'python3', 'infra/helper.py',
+            'coverage', self.project,
+            f'--fuzz-target={fuzzer}',
+            f'--corpus-dir={corpus_dir.resolve()}',
+            '--no-serve',
+        ]
+        logger.info(f"Running coverage for {fuzzer}, cmd: {' '.join(cmd)}")
+        subprocess.run(cmd, cwd=cwd, check=True)
+        logger.info(f"Coverage success for {fuzzer}")
         if not stats_result_path.parent.exists():
             stats_result_path.parent.mkdir(parents=True)
         shutil.copy(stats_path, stats_result_path)
-
-    def run_coverage(self):
-        for fuzzer in self.fuzzers:
-            self.run_coverage_fuzzer(fuzzer)
 
     def covered_function_fuzzer(self, fuzzer):
 
@@ -276,8 +276,13 @@ class OSSFuzzDatasetGenerator:
             return self._fuzzers
         output_path = pathlib.Path(
             self.oss_fuzz_path) / 'build' / 'out' / self.project
-        fuzzers = [fuzzer.name for fuzzer in output_path.iterdir() if is_elf(
-            fuzzer) and fuzzer.name != 'llvm-symbolizer' and not fuzzer.name.endswith('_patched')]
+        fuzzers = [
+            fuzzer.name for fuzzer in output_path.iterdir()
+            if
+            is_elf(fuzzer)
+            and fuzzer.name != 'llvm-symbolizer'
+            and not fuzzer.name.endswith('_patched')
+        ]
         self._fuzzers = fuzzers
         return self._fuzzers
 
@@ -369,37 +374,40 @@ class OSSFuzzDatasetGenerator:
         subprocess.run(cmd)
 
 
-class OSSFuzzProjects:
-    def __init__(self, config_path, project: Optional[str] = None):
-        self.config_path = config_path
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
-        self.oss_fuzz_path = self.config['oss_fuzz_path']
-        self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
-        self.projects = list(
-            os.listdir(self.projects_path)
-        ) if project is None else project.split(',')
-
-    def gen(self):
-        final_result = {}
-        for project in self.projects:
-            try:
-                generator = OSSFuzzDatasetGenerator(self.config_path, project)
-                logger.info(f"Generating {project}")
-                result = generator.generate()
-                final_result[project] = result
-            except KeyboardInterrupt:
-                break
-            except:
-                continue
-
-
 def main():
-    args = parse_args()
+    parser = argparse.ArgumentParser(
+        description='Generate the dataset for a given project in oss-fuzz')
+    parser.add_argument('--config', type=str,
+                        help='Path to the configuration file')
+    parser.add_argument('--project', type=str,
+                        help='Name of the projects, separated by ","', default=None)
+    parser.add_argument('--worker-count', type=int,
+                        help='Number of workers to use', default=os.cpu_count())
+    args = parser.parse_args()
+
+    config_path = args.config
+
     global WORKER_COUNT
     WORKER_COUNT = args.worker_count
-    projects = OSSFuzzProjects(args.config, args.project)
-    projects.gen()
+
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    oss_fuzz_path = config['oss_fuzz_path']
+    projects_path = pathlib.Path(oss_fuzz_path) / 'projects'
+    projects = list(
+        os.listdir(projects_path)
+    ) if args.project is None else args.project.split(',')
+
+    for project in projects:
+        try:
+            generator = OSSFuzzDatasetGenerator(config, project)
+            logger.info(f"Generating {project}")
+            generator.generate()
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            logger.error(f"Error in {project}: {e}")
+            raise
 
 
 if __name__ == '__main__':
