@@ -2,3 +2,12 @@ lief
 keystone-engine
 loguru
 clang
+openai
+datasets
+json5
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langgraph
+pandas

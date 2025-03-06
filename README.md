@@ -42,7 +42,7 @@ python infra/helper.py build_image base-builder
 
 ## Extract Functions
 
-Run `python extract_functions.py --config coverage.yaml`. Initially, execute the fuzzers to collect covered functions, including their names and corresponding files. Coverage information is recorded in `f{oss_fuzz_path}/build/stats/{project}/{fuzzer}_result.json`. 
+Run `python extract_functions.py --config coverage.yaml`. Initially, execute the fuzzers to collect covered functions, including their names and corresponding files. Coverage information is recorded in `{oss_fuzz_path}/build/stats/{project}/{fuzzer}_result.json`. 
 For each function covered by the fuzzer, use `clang` and `clang-extract` to extract functions with external dependencies from each project, storing them in `f{oss_fuzz_path}/functions/{project}`.
 
 

@@ -26,4 +26,3 @@ options:
   - O2
   - O3
   - Os
-result_path: ./result1.json

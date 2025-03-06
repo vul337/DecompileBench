@@ -102,6 +102,7 @@ class OSSFuzzDatasetGenerator:
         work_path = pathlib.Path(
             self.oss_fuzz_path) / 'build' / 'work' / self.project / 'compile_commands.json'
         if output_path.exists() and work_path.exists():
+            logger.info(f"Skipping build for {self.project}")
             return
         cwd = self.oss_fuzz_path
         sanitizer = ','.join(self.config['sanitizer'])
@@ -113,7 +114,12 @@ class OSSFuzzDatasetGenerator:
         build_fuzzer_res = subprocess.run(cmd, cwd=cwd, stderr=subprocess.PIPE)
         if build_fuzzer_res.returncode != 0:
             logger.info(
-                f"--- build_fuzzer_res for {self.project}: {build_fuzzer_res.stderr.decode()}")
+                f"build_fuzzer failed for {self.project}")
+            print(build_fuzzer_res.stdout.decode())
+            print(build_fuzzer_res.stderr.decode())
+            raise Exception(f"Failed to build fuzzer for {self.project}")
+        else:
+            logger.info(f"Build success for {self.project}")
 
     def run_coverage_fuzzer(self, fuzzer):
         stats_result_path = pathlib.Path(

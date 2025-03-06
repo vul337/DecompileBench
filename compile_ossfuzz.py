@@ -1,18 +1,14 @@
 # %%
+import json
 import os
+import pathlib
 import subprocess
-from multiprocessing import Pool
 from itertools import chain
+from multiprocessing import Pool
+
+import clang.cindex
 import datasets
 from tqdm import tqdm
-from pathlib import Path
-import clang.cindex
-import pathlib
-import zipfile
-import shutil
-import json
-from datasets import load_from_disk, Dataset
-import pandas as pd
 
 try:
     clang.cindex.Config.set_library_file(
@@ -23,13 +19,16 @@ except Exception:
 import argparse
 
 parser = argparse.ArgumentParser(description="Compile OSS-Fuzz projects")
-parser.add_argument('--oss_fuzz_path', type=str, default='/mnt/data/oss-fuzz', help='Path to the OSS-Fuzz directory')
-parser.add_argument('--output', type=str, default='./dataset/ossfuzz', help='Output directory for compiled datasets')
+parser.add_argument('--oss_fuzz_path', type=str,
+                    default='/mnt/data/oss-fuzz', help='Path to the OSS-Fuzz directory')
+parser.add_argument('--output', type=str, default='./dataset/ossfuzz',
+                    help='Output directory for compiled datasets')
 
 args = parser.parse_args()
 
 oss_fuzz_path = pathlib.Path(args.oss_fuzz_path)
 OUTPUT = pathlib.Path(args.output)
+BASE_DIR = pathlib.Path(__file__).parent
 
 project_path = oss_fuzz_path / 'build' / 'functions'
 
@@ -61,7 +60,8 @@ def is_elf(file_path):
 
 
 def covered_function_fuzzer(project, fuzzer):
-    stats_path = oss_fuzz_path / 'build' / 'stats' / project / f'{fuzzer}_result.json'
+    stats_path = oss_fuzz_path / 'build' / \
+        'stats' / project / f'{fuzzer}_result.json'
     if not stats_path.exists():
         return {}, []
     with open(stats_path, 'r') as f:
@@ -69,12 +69,14 @@ def covered_function_fuzzer(project, fuzzer):
     functions = {}
     all_functions = []
     for function in data['data'][0]['functions']:
-        c_files = [file for file in function['filenames'] if file.endswith('.c')]
+        c_files = [file for file in function['filenames']
+                   if file.endswith('.c')]
         if function['count'] < 10 or not c_files or ':' in function['name'] or function['name'] == 'LLVMFuzzerTestOneInput' or any(fuzzer in file for file in c_files) or not any(project in file for file in c_files):
             continue
         functions[function['name']] = c_files[0]
         all_functions.append(function)
     return functions, all_functions
+
 
 def extract_function_body(splited_contet, child):
     sr = child.extent
@@ -106,7 +108,7 @@ def extract_function_body(splited_contet, child):
 
 
 def process_project(project):
-    test_list = []    
+    test_list = []
     project_name = str(project).split('/')[-1]
     if project.is_dir():
         if project.name == 'cpython3':
@@ -150,36 +152,21 @@ def process_project(project):
                     })
     return test_list
 
-        
+
 def process_project_linearly(project_path):
     test_lists = []
     for project in tqdm(reversed(list(project_path.iterdir()))):
         result = process_project(project)
         if result is not None:
             test_lists.extend(result)
+    return test_lists
+
 
 test_list = process_project_linearly(project_path)
 ds = datasets.Dataset.from_list(test_list)
 ds = ds.add_column('idx', range(len(ds)))
 outpath = OUTPUT / 'eval'
 ds.save_to_disk(outpath)
-
-# Create a new dictionary to hold the sampled data
-# sampled_data = {}
-
-# # Sample 50 items for each project
-# for project in project_counts.keys():
-#     # Assuming `ds` is a Dataset object that contains the data
-#     project_data = ds.filter(lambda x: x['project'] == project)
-#     sampled_items = project_data.shuffle(seed=42).select(range(min(50, len(project_data))))  # Sample up to 50 items
-#     sampled_data[project] = sampled_items
-
-# all_sampled_items = []
-# for project, items in sampled_data.items():
-#     all_sampled_items.extend(items)
-
-# new_dataset = Dataset.from_list(all_sampled_items)
-# new_dataset.save_to_disk("./ossfuzz_sample50")
 
 
 OUTPUT_BINAEY = OUTPUT / "binary"
@@ -255,4 +242,3 @@ res = list(chain(*res))
 ds = datasets.Dataset.from_list(res)
 print(len(ds))
 ds.save_to_disk(str(OUTPUT / 'compiled_ds'))
-

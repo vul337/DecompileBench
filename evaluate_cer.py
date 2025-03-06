@@ -1,29 +1,32 @@
 
-import logging
+import datasets
+from keystone import *
+import lief
+import clang.cindex
 import argparse
-import subprocess
-import yaml
-import pathlib
-import zipfile
-import json
 import copy
-import shutil
 import importlib
-import tqdm
-import os
-import stat
-from multiprocessing import Pool
-import re
-import tempfile
-from datasets import load_from_disk
 import json
+import logging
+import os
+import pathlib
+import re
+import shutil
+import stat
+import subprocess
+import tempfile
+import zipfile
+from multiprocessing import Pool
+
+import tqdm
+import yaml
+from datasets import load_from_disk
+
 log_path = 'diff_branches_ossfuzz.txt'
 logging.basicConfig(filename=log_path, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-import clang.cindex
-import lief
-from keystone import *
+
 CODE = b"xor rax, rax;mov eax,0xbabe0000; mov rax, [rax]; jmp rax"
 try:
     # Initialize engine in X86-32bit mode
@@ -35,14 +38,23 @@ except KsError as e:
 clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
 index = clang.cindex.Index.create()
 
+
 def patch_fuzzer(file_path, target_function, output_file):
     binary = lief.parse(file_path)
+    if not binary:
+        raise Exception(f"Failed to parse {file_path}")
+
     target_function_addr = binary.get_function_address(target_function)
+    assert isinstance(target_function_addr, int), \
+        f"Failed to get address of {target_function}: {target_function_addr}"
+
     binary.patch_address(target_function_addr, ENCODING)
     binary.write(output_file)
 
+
 with open('diff_base_result_group.json', 'r') as f:
     global_data = json.load(f)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -53,7 +65,6 @@ def parse_args():
                         help='Path to the dataset')
     return parser.parse_args()
 
-dataset = load_from_disk(args.dataset)
 
 def is_elf(file_path):
     if file_path.is_dir():
@@ -63,7 +74,9 @@ def is_elf(file_path):
         file_magic_number = f.read(4)
         return file_magic_number == elf_magic_number
 
+
 pool = Pool(96)
+
 
 def parallel_link_and_test(generator):
     tasks = []
@@ -73,6 +86,7 @@ def parallel_link_and_test(generator):
     print(f"Linking and testing {len(tasks)} tasks")
     return pool.starmap(OSSFuzzDatasetGenerator.link_and_test_for_function, tasks)
 
+
 class OSSFuzzDatasetGenerator:
     def __init__(self, config_path, project):
         with open(config_path, 'r') as f:
@@ -80,7 +94,8 @@ class OSSFuzzDatasetGenerator:
         self.project = project
         self.oss_fuzz_path = self.config['oss_fuzz_path']
         self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
-        self.project_info_path = pathlib.Path(self.projects_path) / project / 'project.yaml'
+        self.project_info_path = pathlib.Path(
+            self.projects_path) / project / 'project.yaml'
         with open(self.project_info_path, 'r') as f:
             self.project_info = yaml.safe_load(f)
         self._fuzzers = None
@@ -99,7 +114,6 @@ class OSSFuzzDatasetGenerator:
             logger.info("--- Linking and Testing Fuzzers")
             return parallel_link_and_test(self)
 
-
     def covered_function_fuzzer(self, fuzzer):
 
         stats_path = pathlib.Path(
@@ -116,7 +130,6 @@ class OSSFuzzDatasetGenerator:
                 continue
             functions[function['name']] = c_files[0]
         return functions
-
 
     def compile_command(self, source_path):
         if self._commands is not None:
@@ -142,7 +155,6 @@ class OSSFuzzDatasetGenerator:
         #     logger.info(f"Source path {source_path} found in compile commands,output path: {item['output']}")
         self._commands = commands
         return commands[source_path]
-
 
     def link_command(self, fuzzer):
         return self.link_commands[fuzzer]
@@ -255,15 +267,20 @@ class OSSFuzzDatasetGenerator:
             result = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
             result.check_returncode()
-            
+
         except Exception as e:
-            logger.error(f"base txt generation failed:{e},{result.stderr.decode()},{result.stdout.decode()}")
+            logger.error(
+                f"base txt generation failed:{e},{result.stderr.decode()},{result.stdout.decode()}")
             if 'undefined symbol:' in result.stdout.decode():
                 try:
-                    undefined_symbol = result.stdout.decode().split('undefined symbol:')[1].strip()
-                    cmd = ['nm', '-D', f'/out/{fuzzer}_{function_name}_patched', '|', 'grep', undefined_symbol]
-                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    logger.info(f"undefined symbol: {undefined_symbol}, {result.stdout.decode()}")
+                    undefined_symbol = result.stdout.decode().split(
+                        'undefined symbol:')[1].strip()
+                    cmd = [
+                        'nm', '-D', f'/out/{fuzzer}_{function_name}_patched', '|', 'grep', undefined_symbol]
+                    result = subprocess.run(
+                        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    logger.info(
+                        f"undefined symbol: {undefined_symbol}, {result.stdout.decode()}")
                 except Exception as e:
                     logger.error(f"undefined symbol extraction failed, {e}")
             return False
@@ -284,13 +301,13 @@ class OSSFuzzDatasetGenerator:
             differences = []
             for i in range(min_length):
                 if base_result[i] != base_result1[i]:
-                    differences.append(i) 
-            # if len(differences) > 0:    
+                    differences.append(i)
+            # if len(differences) > 0:
             #     logger.info(f"--- base txt diff {self.project} {function_name} {fuzzer} differences: {differences}")
         except Exception as e:
             # logger.error(f"testing: diffing base profraw failed: - {e}")
             return False
-        
+
         target_libs = {}
         for decompiler in self.decompilers:
             for option in self.options:
@@ -317,7 +334,8 @@ class OSSFuzzDatasetGenerator:
                 if result.returncode != 0:
                     # logger.error(
                     #     f"target txt generation failed: {result.stderr.decode()},{result.stdout.decode()}, target_lib_path:{target_lib_path}")
-                    logger.error(f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length: target txt generation failed")
+                    logger.error(
+                        f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length: target txt generation failed")
                 else:
                     # logger.info(
                     #     f"target txt generation success: {target_txt_path}")
@@ -328,9 +346,11 @@ class OSSFuzzDatasetGenerator:
                         if base_result1[i] != target_result[i]:
                             target_difference.append(i)
                     if differences == target_difference or len(target_difference) == 0:
-                        logger.info(f"--- target txt diff {self.project} {function_name} {fuzzer} {options}")
+                        logger.info(
+                            f"--- target txt diff {self.project} {function_name} {fuzzer} {options}")
                     else:
-                        logger.error(f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length:{len(target_difference)}")
+                        logger.error(
+                            f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length:{len(target_difference)}")
             except Exception as e:
                 logger.error(
                     f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length: target txt generation failed")
@@ -351,7 +371,6 @@ class OSSFuzzDatasetGenerator:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return True
 
-
     def link_and_test_for_function(self, fuzzer, function_name):
         base_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / \
             'challenges' / self.project / function_name / fuzzer / 'base.txt'
@@ -365,15 +384,16 @@ class OSSFuzzDatasetGenerator:
             self.oss_fuzz_path) / 'build' / 'challenges' / self.project
         if not challenges_path.exists():
             challenges_path.mkdir(parents=True)
-       
-        fuzzers_path = pathlib.Path(self.oss_fuzz_path) / 'build' / 'out' / self.project
+
+        fuzzers_path = pathlib.Path(
+            self.oss_fuzz_path) / 'build' / 'out' / self.project
         if len(list(fuzzers_path.glob('*.zip'))) == 0:
-            cmd = ['python', f'{self.oss_fuzz_path}/infra/helper.py', 'build_fuzzers', '--clean', '--sanitizer', 'coverage', 
-            self.project]
+            cmd = ['python', f'{self.oss_fuzz_path}/infra/helper.py', 'build_fuzzers', '--clean', '--sanitizer', 'coverage',
+                   self.project]
             # '-e CFLAGS=-fPIC -fvisibility=default -Wl,--export-dynamic',
             # '-e CXXFLAGS=-fPIC -fvisibility=default -Wl,--export-dynamic']
             subprocess.run(cmd)
-            
+
         cmd = ['docker', 'rm', '-f', f'{self.project}']
         result = subprocess.run(cmd)
         cmd = [
@@ -435,9 +455,9 @@ class OSSFuzzDatasetGenerator:
         else:
             print(f"Started docker container for {self.project}")
         return self
-        
-        chmod_cmd = ['docker', 'exec', f'{self.project}', 
-        'bash', '-c', 'chmod 755 /out/*.zip']
+
+        chmod_cmd = ['docker', 'exec', f'{self.project}',
+                     'bash', '-c', 'chmod 755 /out/*.zip']
         chmod_result = subprocess.run(chmod_cmd)
         if chmod_result.returncode != 0:
             raise Exception(f"Failed to chmod 755 /out/*.zip")
@@ -450,7 +470,7 @@ class OSSFuzzDatasetGenerator:
 
 
 class OSSFuzzProjects:
-    def __init__(self, config_path):
+    def __init__(self, config_path, dataset: datasets.Dataset):
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
@@ -458,7 +478,7 @@ class OSSFuzzProjects:
         self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
         self.projects = list(set([dataset[i]['project']
                              for i in range(len(dataset))]))
-        
+
     def gen(self):
         final_result = {}
         for project in self.projects:
@@ -472,6 +492,7 @@ class OSSFuzzProjects:
             except:
                 continue
 
+
 def parse_log(log_path):
     with open(log_path, 'r') as f:
         lines = f.readlines()
@@ -484,11 +505,11 @@ def parse_log(log_path):
             fuzzer = line.split(' ')[-2]
             options = line.split(' ')[-1]
             if 'gpt-4o-mini' in options:
-                decompiler='gpt-4o-mini'
-                option=options.split('-')[-1]
+                decompiler = 'gpt-4o-mini'
+                option = options.split('-')[-1]
             elif 'gpt-4o' in options:
-                decompiler='gpt-4o'
-                option=options.split('-')[-1]
+                decompiler = 'gpt-4o'
+                option = options.split('-')[-1]
             else:
                 decompiler, option = options.split('-')
             if project not in target_diff_result:
@@ -499,7 +520,8 @@ def parse_log(log_path):
                 target_diff_result[project][function][decompiler] = {}
             if option not in target_diff_result[project][function][decompiler]:
                 target_diff_result[project][function][decompiler][option] = []
-            target_diff_result[project][function][decompiler][option].append((fuzzer, True))
+            target_diff_result[project][function][decompiler][option].append(
+                (fuzzer, True))
         elif 'target txt diff' in line and 'ERROR' in line:
             line = line.split(', differences')[0]
             project = line.split(' ')[-4]
@@ -507,11 +529,11 @@ def parse_log(log_path):
             fuzzer = line.split(' ')[-2]
             options = line.split(' ')[-1]
             if 'gpt-4o-mini' in options:
-                decompiler='gpt-4o-mini'
-                option=options.split('-')[-1]
+                decompiler = 'gpt-4o-mini'
+                option = options.split('-')[-1]
             elif 'gpt-4o' in options:
-                decompiler='gpt-4o'
-                option=options.split('-')[-1]
+                decompiler = 'gpt-4o'
+                option = options.split('-')[-1]
             else:
                 decompiler, option = options.split('-')
             if project not in target_diff_result:
@@ -523,17 +545,20 @@ def parse_log(log_path):
             if option not in target_diff_result[project][function][decompiler]:
                 target_diff_result[project][function][decompiler][option] = []
             if fuzzer not in target_diff_result[project][function][decompiler][option]:
-                target_diff_result[project][function][decompiler][option].append((fuzzer,False))
+                target_diff_result[project][function][decompiler][option].append(
+                    (fuzzer, False))
 
     return target_diff_result
 
+
 def main():
     args = parse_args()
-    projects = OSSFuzzProjects(args.config)
+    dataset = load_from_disk(args.dataset)
+    assert isinstance(dataset, datasets.Dataset)
+    projects = OSSFuzzProjects(args.config, dataset)
     projects.gen()
+
 
 if __name__ == '__main__':
     main()
     cer_result = parse_log(log_path)
-
-

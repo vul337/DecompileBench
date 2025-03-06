@@ -1,24 +1,18 @@
 # %%
 
-import pathlib
-import os
-import json
-import subprocess
-from multiprocessing import Pool
-import multiprocessing
-from itertools import chain
-import datasets
-import tempfile
-import importlib
-import pandas as pd
-import asyncio
-from tqdm import tqdm
 import argparse
+import importlib
+import multiprocessing
+import os
+import pathlib
 import re
-import clang.cindex
-import lief
 import subprocess
-from datasets import Dataset
+
+import clang.cindex
+import datasets
+import pandas as pd
+from tqdm import tqdm
+
 # %%
 
 parser = argparse.ArgumentParser()
@@ -33,13 +27,16 @@ debug = args.debug
 ds_with_decompile_code = datasets.Dataset.load_from_disk(args.decompile_result)
 
 df = ds_with_decompile_code.to_pandas()
+assert isinstance(df, pd.DataFrame)
 
 DECOMPILERS = [
     "angr",
-    "binja", "dewolf", "ghidra",
+    "binja",
+    "dewolf",
+    "ghidra",
     "hexrays",
     "retdec",
-    "mlm", 
+    "mlm",
     "llm4decompile",
     'qwen',
     'deepseek',
@@ -57,9 +54,9 @@ index = clang.cindex.Index.create()
 def make_function_static(source, target_function_name):
     def get_function_attributes(cursor):
         attributes = []
-        if cursor.storage_class == clang.cindex.StorageClass.STATIC:
+        if cursor.storage_class == clang.cindex.StorageClass.STATIC:  # type: ignore
             attributes.append('static')
-        if cursor.storage_class == clang.cindex.StorageClass.EXTERN:
+        if cursor.storage_class == clang.cindex.StorageClass.EXTERN:  # type: ignore
             attributes.append('extern')
         return attributes
 
@@ -70,7 +67,7 @@ def make_function_static(source, target_function_name):
     patches = []
 
     for cursor in tu.cursor.walk_preorder():
-        if cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:
+        if cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:  # type: ignore
             if cursor.spelling == target_function_name:
                 attributes = get_function_attributes(cursor)
                 start_line = cursor.extent.start.line - 1
@@ -94,12 +91,14 @@ def make_function_static(source, target_function_name):
 
     return '\n'.join(lines)
 
+
 def remove_extern(source):
     lines = source.split('\n')
     for i, line in enumerate(lines):
         if re.match(r'^extern\s+', line):
             lines[i] = line.replace('extern', '')
     return '\n'.join(lines)
+
 
 TEMPLATE = """
 #define MMAP 9
@@ -137,6 +136,9 @@ def parse_path(path):
     project_pattern = re.compile(r'task-([^_]+)_(.*)-(O\w).so')
 
     matched = project_pattern.match(path)
+    if matched is None:
+        raise ValueError(f"Invalid path: {path}")
+
     project = matched.group(1)
     function = matched.group(2)
     option = matched.group(3)
@@ -180,7 +182,7 @@ def evaluate_func(params):
         return 0, 0, 0
     else:
         chmod_res = subprocess.run(['docker', 'exec', 'evaluate_in_docker',
-                 'chmod', '777', str(result_path.parent)], check=True)
+                                    'chmod', '777', str(result_path.parent)], check=True)
         if chmod_res.returncode != 0:
             print(f"Failed to chmod {result_path.parent}")
             return 0, 0, 0
@@ -193,7 +195,7 @@ def evaluate_func(params):
     timeout = 10
     flag_compile = 0
     flag_run = 0
-    
+
     c_include = """
     #include <defs.h>
     """+c_include
@@ -202,11 +204,11 @@ def evaluate_func(params):
         return 0, 0, 0
 
     import re
-    
+
     fixer = importlib.import_module("fix." + compiler)
     if compiler in ['deepseek', 'qwen', 'gpt-4o-mini', 'gpt-4o', 'claude']:
         c_func_decompile = fixer.fix(c_func_decompile, function)
-    else:   
+    else:
         c_func_decompile = fixer.fix(c_func_decompile)
 
     c_onlyfunc = c_include + "\n" + c_func_decompile
@@ -219,14 +221,14 @@ def evaluate_func(params):
     extra_include_path = os.path.join('/fix', compiler)
 
     docker_cmd = [
-    "docker", "exec", "evaluate_in_docker", "clang",
-    f"-I{extra_include_path}",
-    c_path_docker,
-    "-shared",
-    "-fPIC",
-    "-o",
-    result_path,
-    "-fprofile-instr-generate", "-fcoverage-mapping", "-pthread", "-Wl,--no-as-needed", "-Wl,-ldl", "-Wl,-lm", "-Wno-unused-command-line-argument",
+        "docker", "exec", "evaluate_in_docker", "clang",
+        f"-I{extra_include_path}",
+        c_path_docker,
+        "-shared",
+        "-fPIC",
+        "-o",
+        result_path,
+        "-fprofile-instr-generate", "-fcoverage-mapping", "-pthread", "-Wl,--no-as-needed", "-Wl,-ldl", "-Wl,-lm", "-Wno-unused-command-line-argument",
     ]
 
     def run_cmd(extra_args):
@@ -246,7 +248,7 @@ def evaluate_func(params):
                 print('-'*20)
                 print(c_func_decompile)
                 print('-'*20)
-            
+
             warnings = warning_pattern.findall(stderr)
             ret.check_returncode()
             flag_compile = 1
@@ -254,7 +256,7 @@ def evaluate_func(params):
             return flag_compile, flag_run, warning_count, warnings
 
         return flag_compile, flag_run, warning_count, warnings
-    
+
     flag_compile, flag_run, warning_count, warnings = run_cmd([])
     if flag_compile == 0 and warnings:
         flag_compile, flag_run, warning_count, warnings = run_cmd([
@@ -263,7 +265,6 @@ def evaluate_func(params):
         ])
 
     return flag_compile, flag_run, warning_count
-
 
 
 def decompile_pass_rate(gen_results, compiler, num_workers):
@@ -312,6 +313,7 @@ def decompile_pass_rate(gen_results, compiler, num_workers):
 
     return ret
 
+
 if 'all' in args.decompiler:
     args.decompiler = DECOMPILERS
 result = subprocess.run("docker ps | grep evaluate_in_docker",
@@ -340,7 +342,7 @@ else:
     print("Container evaluate_in_docker created successfully")
 
 if args.debug:
-    df = df.sample(frac=1).reset_index(drop=True)[:100] 
+    df = df.sample(frac=1).reset_index(drop=True)[:100]
 for d in args.decompiler:
     print(f'Decompiler: {d}')
 
@@ -361,7 +363,7 @@ for d in args.decompiler:
     print('-' * 30)
 
 rm_docker_cmd = "docker rm -f evaluate_in_docker"
-result = subprocess.run(rm_docker_cmd, shell=True, capture_output=True, text=True)
-if result.returncode ==0:
+result = subprocess.run(rm_docker_cmd, shell=True,
+                        capture_output=True, text=True)
+if result.returncode == 0:
     print("Container evaluate_in_docker removed successfully")
-
