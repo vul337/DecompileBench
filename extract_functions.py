@@ -36,6 +36,25 @@ def extract_for_function_wrapper(generator: 'OSSFuzzDatasetGenerator', function_
 WORKER_COUNT = os.cpu_count()
 
 
+def run_in_docker(
+    paths: List[pathlib.Path],
+    command: str,
+    cwd: pathlib.Path = pathlib.Path.cwd(),
+    image: str = 'alpine',
+):
+    cmd = [
+        'docker', 'run', '--rm',
+        *sum([['-v', f'{path.resolve()}:{path.resolve()}']
+             for path in paths], []),
+        '-w', str(cwd.resolve()),
+        image,
+        'sh', '-c',
+        command,
+    ]
+    logger.info(f"Running in docker: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+
+
 def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
     logger.info(f"Extracting functions for {generator.project}")
     tasks = []
@@ -53,7 +72,8 @@ class OSSFuzzDatasetGenerator:
     def __init__(self, config, project):
         self.config = config
         self.project: str = project
-        self.oss_fuzz_path = pathlib.Path(self.config['oss_fuzz_path'])
+        self.oss_fuzz_path = pathlib.Path(
+            self.config['oss_fuzz_path']).resolve()
         self.project_info_path = self.oss_fuzz_path / \
             'projects' / project / 'project.yaml'
         with open(self.project_info_path, 'r') as f:
@@ -122,18 +142,12 @@ class OSSFuzzDatasetGenerator:
 
         # with zipfile.ZipFile(corpus_zip, 'r') as zip_ref:
         #     zip_ref.extractall(corpus_dir)
-
         # Use docker to extract the corpus to avoid permission issues
-        unzip_cmd = [
-            'docker', 'run', '--rm',
-            '-v', f'{self.oss_fuzz_path.resolve()}:{self.oss_fuzz_path.resolve()}',
-            '-v', f'{corpus_zip.resolve()}:/corpus.zip',
-            'alpine',
-            'sh', '-c',
-            f'mkdir -p {corpus_dir.resolve()} && unzip /corpus.zip -o -q -d {corpus_dir.resolve()}'
-        ]
-        logger.info(f"Extracting corpus for {fuzzer}: {' '.join(unzip_cmd)}")
-        subprocess.run(unzip_cmd, check=True)
+        run_in_docker(
+            [corpus_zip, corpus_dir],
+            f'mkdir -p {corpus_dir} && unzip -o {corpus_zip} -d {corpus_dir} -q',
+        )
+
         cwd = self.oss_fuzz_path
         cmd = [
             'python3', 'infra/helper.py',
@@ -145,9 +159,15 @@ class OSSFuzzDatasetGenerator:
         logger.info(f"Running coverage for {fuzzer}, cmd: {' '.join(cmd)}")
         subprocess.run(cmd, cwd=cwd, check=True)
         logger.info(f"Coverage success for {fuzzer}")
-        if not stats_result_path.parent.exists():
-            stats_result_path.parent.mkdir(parents=True)
-        shutil.copy(stats_path, stats_result_path)
+
+        # if not stats_result_path.parent.exists():
+        #     stats_result_path.parent.mkdir(parents=True)
+        # shutil.copy(stats_path, stats_result_path)
+
+        run_in_docker(
+            [self.oss_fuzz_path],
+            f'mkdir -p {stats_result_path.parent} && cp {stats_path} {stats_result_path}',
+        )
 
     def covered_function_fuzzer(self, fuzzer):
 
@@ -181,8 +201,8 @@ class OSSFuzzDatasetGenerator:
     def compile_command(self, source_path):
         if self._commands is not None:
             return self._commands[source_path]
-        compile_commands_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'work' / self.project / 'compile_commands.json'
+        compile_commands_path = self.oss_fuzz_path / \
+            'build/work' / self.project / 'compile_commands.json'
         if not compile_commands_path.exists():
             logger.info(
                 f"Compile commands path {compile_commands_path} does not exist, {compile_commands_path}")
@@ -274,8 +294,7 @@ class OSSFuzzDatasetGenerator:
     def fuzzers(self):
         if self._fuzzers is not None:
             return self._fuzzers
-        output_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project
+        output_path = self.oss_fuzz_path / 'build' / 'out' / self.project
         fuzzers = [
             fuzzer.name for fuzzer in output_path.iterdir()
             if
@@ -292,8 +311,7 @@ class OSSFuzzDatasetGenerator:
         if not challenges_path.exists():
             challenges_path.mkdir(parents=True)
 
-        fuzzers_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project
+        fuzzers_path = self.oss_fuzz_path / 'build' / 'out' / self.project
         if len(list(fuzzers_path.glob('*.zip'))) == 0:
             cmd = ['python', f'{self.oss_fuzz_path}/infra/helper.py', 'build_fuzzers', '--clean', '--sanitizer', 'coverage',
                    self.project]
@@ -314,7 +332,8 @@ class OSSFuzzDatasetGenerator:
             f'{self.oss_fuzz_path}/build/corpus/{self.project}:/corpus',
             '-v',
             f'{self.oss_fuzz_path}/build/out/{self.project}:/out',
-            '-v', '/dev/shm:/dev/shm',
+            '--mount', 'type=tmpfs,destination=/dev/shm',
+            '--mount', 'type=tmpfs,destination=/run',
             '-v',
             f'{self.oss_fuzz_path}/build/out/{self.project}/src:/src',
             '-v',
