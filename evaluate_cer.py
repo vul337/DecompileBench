@@ -1,40 +1,34 @@
 
-import datasets
-from keystone import *
-import lief
-import clang.cindex
 import argparse
-import copy
-import importlib
 import json
 import logging
 import os
 import pathlib
-import re
-import shutil
-import stat
 import subprocess
-import tempfile
-import zipfile
 from multiprocessing import Pool
 
-import tqdm
+import clang.cindex
+import datasets
+import lief
 import yaml
 from datasets import load_from_disk
+from keystone import KS_ARCH_X86, KS_MODE_64, Ks
 
 log_path = 'diff_branches_ossfuzz.txt'
 logging.basicConfig(filename=log_path, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-CODE = b"xor rax, rax;mov eax,0xbabe0000; mov rax, [rax]; jmp rax"
-try:
-    # Initialize engine in X86-32bit mode
-    ks = Ks(KS_ARCH_X86, KS_MODE_64)
-    ENCODING, count = ks.asm(CODE)
-except KsError as e:
-    print("ERROR: %s" % e)
+CODE = b"""" \
+xor rax, rax;
+mov eax, 0xbabe0000;
+mov rax, [rax];
+jmp rax
+"""
 
+# Initialize engine in X86-32bit mode
+ks = Ks(KS_ARCH_X86, KS_MODE_64)
+ENCODING, count = ks.asm(CODE)
 clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
 index = clang.cindex.Index.create()
 

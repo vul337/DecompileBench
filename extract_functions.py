@@ -1,15 +1,10 @@
 
 import argparse
-import copy
-import importlib
 import json
-import logging
 import os
 import pathlib
-import random
 import re
 import shutil
-import stat
 import subprocess
 import tempfile
 from typing import Optional
@@ -17,10 +12,7 @@ import zipfile
 from multiprocessing import Pool
 
 import clang.cindex
-import lief
-import tqdm
 import yaml
-from keystone import *
 from loguru import logger
 
 clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
