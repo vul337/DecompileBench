@@ -16,13 +16,11 @@ import datasets
 import json5
 import numpy as np
 import pandas as pd
-import requests
 from langchain.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.outputs import Generation
-from langchain_core.runnables import RunnableLambda
 from langchain_core.utils.json import _parse_json, parse_partial_json
 from langchain_openai import ChatOpenAI
 from tqdm import tqdm
