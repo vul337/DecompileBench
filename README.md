@@ -13,9 +13,6 @@ git clone https://github.com/google/oss-fuzz.git
 Then we modify the `base-builder` Dockerfile to include `bear` and `clang-extract` to support the function extraction.
 
 ```shell
-# Add bear config
-cp bear_config.json oss-fuzz/infra/base-images/base-builder/
-
 # Download prebuilt clang-extract
 wget 'https://seafile.vul337.team:8443/f/1f11e8c4a8eb46dcb981/?dl=1' -O oss-fuzz/infra/base-images/base-builder/clang-extract.tar.gz
 
@@ -30,11 +27,10 @@ RUN apt install -y pkg-config python3-apt libssl-dev ninja-build && \
     cd .. && \
     rm -rf Bear
 
-COPY bear_config.json /src/bear_config.json
 ADD clang-extract.tar.gz /src/clang-extract
 RUN patchelf --set-interpreter "/src/clang-extract/ld-linux-x86-64.so.2" /src/clang-extract/clang-extract
 
-CMD ["bear", "--config", "/src/bear_config.json", "--output", "/work/compile_commands.json", "--", "compile"]
+CMD ["bear", "--output", "/work/compile_commands.json", "--", "compile"]
 EOF
 ```
 
