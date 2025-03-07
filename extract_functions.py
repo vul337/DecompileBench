@@ -238,30 +238,30 @@ class OSSFuzzDatasetGenerator:
             pass
 
         def clang_extract_directly():
-            cmd = [
-                'docker', 'exec', '-w', cwd, f'{self.project}',
-                '/src/clang-extract/clang-extract',
-                '-I/usr/local/lib/clang/18/include',
-                '-I/usr/local/include',
-                '-I/usr/include/x86_64-linux-gnu',
-                '-I/usr/include',
-                *compile_args,
-                f'-DCE_EXTRACT_FUNCTIONS={function_name}',
-                f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
-                # '-c'  # Add -c flag to generate exactly one compiler job
-            ]
-            subprocess.run(cmd, check=True)
+            self.exec_in_container(
+                [
+                    '/src/clang-extract/clang-extract',
+                    '-I/usr/local/lib/clang/18/include',
+                    '-I/usr/local/include',
+                    '-I/usr/include/x86_64-linux-gnu',
+                    '-I/usr/include',
+                    *compile_args,
+                    f'-DCE_EXTRACT_FUNCTIONS={function_name}',
+                    f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
+                    # '-c'  # Add -c flag to generate exactly one compiler job
+                ],
+                cwd
+            )
 
         def preprocess_then_clang_extract():
-            cmd = [
-                'docker', 'exec',
-                '-w', cwd,
-                f'{self.project}',
-                *compile_args,
-                '-E', '-C', '-fdirectives-only'
-            ]
-            clang_result = subprocess.run(
-                cmd, check=True, stdout=subprocess.PIPE)
+            clang_result = self.exec_in_container(
+                [
+                    *compile_args,
+                    '-E', '-C', '-fdirectives-only'
+                ],
+                cwd,
+                stdout=subprocess.PIPE
+            )
 
             code = '\n'.join([
                 line for line in clang_result.stdout.decode().splitlines()
@@ -277,17 +277,16 @@ class OSSFuzzDatasetGenerator:
                     a for a in compile_args if a.startswith('-')
                 ]
 
-                cmd = [
-                    'docker', 'exec', '-w', cwd, f'{self.project}',
-                    '/src/clang-extract/clang-extract',
-                    *compile_options,
-                    temp_file.name,
-                    f'-DCE_EXTRACT_FUNCTIONS={function_name}',
-                    f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
-                    '-c'  # Add -c flag to generate exactly one compiler job
-                ]
-                subprocess.run(cmd, check=True)
-
+                self.exec_in_container(
+                    ['/src/clang-extract/clang-extract',
+                     *compile_options,
+                     temp_file.name,
+                     f'-DCE_EXTRACT_FUNCTIONS={function_name}',
+                     f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
+                     '-c'  # Add -c flag to generate exactly one compiler job
+                     ],
+                    cwd,
+                )
         try:
             clang_extract_directly()
         except Exception:
@@ -318,6 +317,20 @@ class OSSFuzzDatasetGenerator:
         self._fuzzers = fuzzers
         return self._fuzzers
 
+    def exec_in_container(self, cmd, cwd=None, **kwargs):
+        if not self.container_running:
+            raise Exception("Container is not running")
+        cmd = [
+            'docker', 'exec', '-w', cwd or self.oss_fuzz_path, self.container_name, *cmd
+        ]
+        return subprocess.run(cmd, check=True, **kwargs)
+
+    @property
+    def container_name(self):
+        return self.project
+
+    container_running = False
+
     @contextmanager
     def start_container(self, keep: bool = False):
         try:
@@ -330,7 +343,7 @@ class OSSFuzzDatasetGenerator:
             if len(list(fuzzers_path.glob('*.zip'))) == 0:
                 self.build_fuzzer()
 
-            cmd = ['docker', 'rm', '-f', f'{self.project}']
+            cmd = ['docker', 'rm', '-f', self.container_name]
             result = subprocess.run(cmd, capture_output=True)
             cmd = [
                 'docker',
@@ -338,7 +351,7 @@ class OSSFuzzDatasetGenerator:
                 '-dit',
                 '--privileged',
                 '--name',
-                f'{self.project}',
+                self.container_name,
 
                 '-v', '/dev/shm:/dev/shm',
                 '-v', f'{self.oss_fuzz_path}/build/challenges/{self.project}:/challenges',
@@ -374,12 +387,13 @@ class OSSFuzzDatasetGenerator:
                     f"Failed to start docker container for {self.project}")
             else:
                 logger.info(f"Started docker container for {self.project}")
-
+            self.container_running = True
             yield self
         finally:
             if not keep:
-                cmd = ['docker', 'rm', '-f', f'{self.project}']
+                cmd = ['docker', 'rm', '-f', self.container_name]
                 subprocess.run(cmd)
+                self.container_running = False
 
 
 def main():
