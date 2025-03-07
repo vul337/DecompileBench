@@ -32,7 +32,7 @@ python infra/helper.py build_image base-runner --cache --no-pull
 Then we compile the dummy library for linking with the fuzzer.
 
 ```shell
-docker run -it --rm -w /work -v $(pwd):/work gcr.io/oss-fuzz-base/base-builder clang dummy.c -o libdummy.so -O2 -fPIC -shared
+docker run -it --rm -w /work -v $(pwd):/work gcr.io/oss-fuzz-base/base-builder clang dummy.c -o libfunction.so -O2 -fPIC -shared
 ```
 
 ## Extract Functions

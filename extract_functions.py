@@ -117,9 +117,9 @@ class OSSFuzzDatasetGenerator:
             '--sanitizer', sanitizer,
             '-e', 'CFLAGS=-fPIC -fvisibility=default -Wl,-export-dynamic -Wno-error',
             '-e', 'CXXFLAGS=-fPIC -fvisibility=default -Wl,-export-dynamic -Wno-error',
-            '-e', 'CC=clang -L/oss-fuzz -ldummy -Wl,-rpath=/oss-fuzz',
-            '-e', 'CXX=clang++ -L/oss-fuzz -ldummy -Wl,-rpath=/oss-fuzz',
-            '-e', 'LDFLAGS=-Qunused-arguments -L/oss-fuzz -ldummy',
+            '-e', 'CC=clang -L/oss-fuzz -lfunction -Wl,-rpath=/oss-fuzz',
+            '-e', 'CXX=clang++ -L/oss-fuzz -lfunction -Wl,-rpath=/oss-fuzz',
+            '-e', 'LDFLAGS=-Qunused-arguments -L/oss-fuzz -lfunction',
         ]
 
         logger.info(f"Executing build_fuzzer with command: {cmd}")
@@ -228,10 +228,15 @@ class OSSFuzzDatasetGenerator:
         functions_path = self.oss_fuzz_path / 'build' / 'functions' / self.project
         output_file_path = functions_path / f'{function_name}.c'
 
-        if output_file_path.exists():
-            return
+        # if output_file_path.exists():
+        #     return
+        
 
         compile_args = cmd_info['arguments'][1:]  # Skip the compiler path
+
+        if 'file_separator.c' in str(output_file_path):
+            print(compile_args)
+            raise Exception("File separator")
 
         try:
             output_file_indicator = compile_args.index('-o')
@@ -364,15 +369,15 @@ class OSSFuzzDatasetGenerator:
                 '-v', f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
                 '-v', f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
                 '-v', f'{repo_path}/fix:/fix',
-                '-v', f'{repo_path}/libdummy.so:/oss-fuzz/libdummy.so',
+                '-v', f'{repo_path}/libfunction.so:/oss-fuzz/libfunction.so',
 
                 '-e', 'FUZZING_ENGINE=libfuzzer',
                 '-e', 'SANITIZER=coverage',
                 '-e', 'ARCHITECTURE=x86_64',
                 '-e', 'HELPER=True',
                 '-e', 'FUZZING_LANGUAGE=c++',
-                '-e', 'CFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
-                '-e', 'CXXFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
+                '-e', 'CFLAGS= -fPIC -fvisibility=default -Wl,-export-dynamic -Wno-error -Qunused-arguments',
+                '-e', 'CXXFLAGS= -fPIC -fvisibility=default -Wl,-export-dynamic -Wno-error -Qunused-arguments',
                 '-e', 'CC=clang',
                 '-e', 'CXX=clang++',
 
