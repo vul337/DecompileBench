@@ -205,12 +205,8 @@ class OSSFuzzDatasetGenerator:
             return self._commands[source_path]
         compile_commands_path = self.oss_fuzz_path / \
             'build/work' / self.project / 'compile_commands.json'
-        if not compile_commands_path.exists():
-            raise Exception(
-                f"Compile commands path {compile_commands_path} does not exist")
-        else:
-            logger.info(
-                f"Compile commands path {compile_commands_path} exists")
+        assert compile_commands_path.exists(), \
+            f"Compile commands path {compile_commands_path} does not exist"
         with open(compile_commands_path, 'r') as f:
             compile_commands = json.load(f)
         commands = {}
@@ -285,13 +281,14 @@ class OSSFuzzDatasetGenerator:
                 ]
 
                 self.exec_in_container(
-                    ['/src/clang-extract/clang-extract',
-                     *compile_options,
-                     temp_file.name,
-                     f'-DCE_EXTRACT_FUNCTIONS={function_name}',
-                     f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
-                     '-c'  # Add -c flag to generate exactly one compiler job
-                     ],
+                    [
+                        '/src/clang-extract/clang-extract',
+                        *compile_options,
+                        temp_file.name,
+                        f'-DCE_EXTRACT_FUNCTIONS={function_name}',
+                        f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
+                        '-c'  # Add -c flag to generate exactly one compiler job
+                    ],
                     cwd,
                 )
         try:
