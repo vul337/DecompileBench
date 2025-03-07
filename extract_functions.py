@@ -49,6 +49,9 @@ def run_in_docker(
     subprocess.run(cmd, check=True)
 
 
+line_no_directive_pattern = re.compile(r'^# \d+ ')
+
+
 class OSSFuzzDatasetGenerator:
     def __init__(self, config, project):
         self.config = config
@@ -65,7 +68,6 @@ class OSSFuzzDatasetGenerator:
         self._link = None
         self.decompilers = self.config['decompilers']
         self.options = self.config['options']
-        self.line_no_directive_pattern = re.compile(r'^# \d+ ')
 
     def generate(self):
         if 'language' not in self.project_info or self.project_info['language'] not in ['c', 'c++']:
@@ -263,7 +265,7 @@ class OSSFuzzDatasetGenerator:
 
             code = '\n'.join([
                 line for line in clang_result.stdout.decode().splitlines()
-                if not self.line_no_directive_pattern.match(line)
+                if not line_no_directive_pattern.match(line)
             ])
             assert code, "Preprocessed code is empty"
 
