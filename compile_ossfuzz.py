@@ -5,10 +5,14 @@ import pathlib
 import subprocess
 from itertools import chain
 from multiprocessing import Pool
+import tempfile
 
 import clang.cindex
+from loguru import logger
 import datasets
 from tqdm import tqdm
+import re
+import yaml
 
 try:
     clang.cindex.Config.set_library_file(
@@ -19,16 +23,20 @@ except Exception:
 import argparse
 
 parser = argparse.ArgumentParser(description="Compile OSS-Fuzz projects")
-parser.add_argument('--oss_fuzz_path', type=str,
+parser.add_argument('--config', type=str,
                     default='/mnt/data/oss-fuzz', help='Path to the OSS-Fuzz directory')
 parser.add_argument('--output', type=str, default='./dataset/ossfuzz',
                     help='Output directory for compiled datasets')
+parser.add_argument('--num_workers', type=int, default=os.cpu_count(),
+                    help='Number of workers to compile the projects')
 
 args = parser.parse_args()
 
-oss_fuzz_path = pathlib.Path(args.oss_fuzz_path)
-OUTPUT = pathlib.Path(args.output)
-BASE_DIR = pathlib.Path(__file__).parent
+with open(args.config, 'r') as f:
+    config = yaml.safe_load(f)
+
+oss_fuzz_path = pathlib.Path(config['oss_fuzz_path'])
+OUTPUT_PATH = pathlib.Path(args.output).resolve()
 
 project_path = oss_fuzz_path / 'build' / 'functions'
 
@@ -59,25 +67,6 @@ def is_elf(file_path):
         return file_magic_number == elf_magic_number
 
 
-def covered_function_fuzzer(project, fuzzer):
-    stats_path = oss_fuzz_path / 'build' / \
-        'stats' / project / f'{fuzzer}_result.json'
-    if not stats_path.exists():
-        return {}, []
-    with open(stats_path, 'r') as f:
-        data = json.load(f)
-    functions = {}
-    all_functions = []
-    for function in data['data'][0]['functions']:
-        c_files = [file for file in function['filenames']
-                   if file.endswith('.c')]
-        if function['count'] < 10 or not c_files or ':' in function['name'] or function['name'] == 'LLVMFuzzerTestOneInput' or any(fuzzer in file for file in c_files) or not any(project in file for file in c_files):
-            continue
-        functions[function['name']] = c_files[0]
-        all_functions.append(function)
-    return functions, all_functions
-
-
 def extract_function_body(splited_contet, child):
     sr = child.extent
     start = sr.start
@@ -105,6 +94,9 @@ def extract_function_body(splited_contet, child):
             else:
                 src += line + b'\n'
     return src
+
+
+undef_pattern = re.compile(r'#undef\s.*')
 
 
 def process_project(project):
@@ -140,15 +132,21 @@ def process_project(project):
 
                 if test_func:
                     test_func = test_func.decode()
-                    include_content = content.replace(
-                        '#undef NULL', '').replace(test_func, '')
+
+                    test_func_pos = content.find(test_func)
+                    include_content_part1 = content[:test_func_pos]
+                    test_func_end = test_func_pos + len(test_func)
+                    include_content_part2 = content[test_func_end:]
+
+                    include_content_part2 = undef_pattern.sub(
+                        '', include_content_part2)
 
                     test_list.append({
                         'project': project.stem,
                         'file': file.stem,
                         'func': test_func,
                         'test': '',
-                        'include': include_content,
+                        'include': include_content_part1 + include_content_part2,
                     })
     return test_list
 
@@ -165,25 +163,22 @@ def process_project_linearly(project_path):
 test_list = process_project_linearly(project_path)
 ds = datasets.Dataset.from_list(test_list)
 ds = ds.add_column('idx', range(len(ds)))
-outpath = OUTPUT / 'eval'
-ds.save_to_disk(outpath)
+outpath = OUTPUT_PATH / 'eval'
+ds.save_to_disk(outpath.as_posix())
 
 
-OUTPUT_BINAEY = OUTPUT / "binary"
-if not OUTPUT.exists():
-    OUTPUT.mkdir()
-if not OUTPUT_BINAEY.exists():
-    OUTPUT_BINAEY.mkdir()
+OUTPUT_BINARY_PATH = OUTPUT_PATH / "binary"
+OUTPUT_BINARY_PATH.mkdir(exist_ok=True, parents=True)
 
 extra_flags = ' '.join([
     "-mno-sse",
     "-fno-eliminate-unused-debug-types",
     "-fno-lto",
     "-fno-inline-functions",
-    "-fno-inline-small-functions",
-    "-fno-inline-functions-called-once",
+    # "-fno-inline-small-functions",  # not supported in clang
+    # "-fno-inline-functions-called-once",  # not supported in clang
     "-fno-inline",
-    "-fno-reorder-blocks-and-partition",
+    # "-fno-reorder-blocks-and-partition",  # not supported in clang
 ])
 
 
@@ -196,36 +191,40 @@ def compile(row):
 
     challenge = []
 
-    for opt in ['O0', 'O1', 'O2', 'O3', 'Os']:
-        with open(f"/tmp/{idx}.c", "w") as f:
-            f.write(include)
-            f.write('\n')
-            f.write(func)
-            f.write('\n')
-            f.write(test)
+    filepath = f'/dev/shm/oss-fuzz-{function_name}.c'
+    try:
+        for opt in ['O0', 'O1', 'O2', 'O3', 'Os']:
+            with open(filepath, 'w') as f:
+                f.write(include)
+                f.write('\n')
+                f.write(func)
+                f.write('\n')
+                f.write(test)
 
-        output_file = OUTPUT_BINAEY / f'task-{idx}-{opt}.so'
-        os.system(
-            f"clang /tmp/{idx}.c -{opt} -shared -fPIC -o {output_file} {extra_flags} -lm")
+            output_file = OUTPUT_BINARY_PATH / f'task-{idx}-{opt}.so'
+            subprocess.run(
+                f"clang {filepath} -{opt} -shared -fPIC -o {output_file} {extra_flags} -lm",
+                shell=True,
+                check=True,
+            )
 
-        ret = subprocess.run(
-            f'nm {output_file} | egrep " {function_name}$"', stdout=subprocess.PIPE, shell=True)
-        ret = ret.stdout
-        if not ret:
-            continue
-        # assert ret
-        ret = ret.decode()
-        location = int(ret.split(" ")[0], 16)
+            ret = subprocess.run(
+                f'nm {output_file} | egrep " {function_name}$"', stdout=subprocess.PIPE, shell=True, check=True)
+            ret = ret.stdout.decode()
+            location = int(ret.split(" ")[0], 16)
 
-        for f in [output_file]:
             challenge.append({
                 **row,
                 'addr': location,
                 'opt': opt,
-                'path': str(f.relative_to(BASE_DIR)),
+                'path': str(output_file.relative_to(OUTPUT_PATH)),
             })
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error compiling {idx} with {opt}: {e}")
+    finally:
+        # os.remove(filepath)
+        pass
 
-    os.remove(f"/tmp/{idx}.c")
     return challenge
 
 
@@ -237,8 +236,8 @@ def tqdm_progress_map(func, iterable, num_workers):
     return results
 
 
-res = tqdm_progress_map(compile, ds, 64)
+res = tqdm_progress_map(compile, ds, args.num_workers)
 res = list(chain(*res))
 ds = datasets.Dataset.from_list(res)
 print(len(ds))
-ds.save_to_disk(str(OUTPUT / 'compiled_ds'))
+ds.save_to_disk(str(OUTPUT_PATH / 'compiled_ds'))
