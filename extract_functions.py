@@ -1,15 +1,14 @@
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import tempfile
-from typing import Optional
-import zipfile
 from multiprocessing import Pool
+from typing import List
 
 import clang.cindex
 import yaml
@@ -26,11 +25,6 @@ def is_elf(file_path):
         elf_magic_number = b'\x7fELF'
         file_magic_number = f.read(4)
         return file_magic_number == elf_magic_number
-
-
-def extract_for_function_wrapper(generator: 'OSSFuzzDatasetGenerator', function_name, source_path):
-    """Wrapper function to call extract_for_function as a static method."""
-    return generator.extract_for_function(function_name, source_path)
 
 
 WORKER_COUNT = os.cpu_count()
@@ -53,19 +47,6 @@ def run_in_docker(
     ]
     logger.info(f"Running in docker: {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
-
-
-def parallel_extract(generator: 'OSSFuzzDatasetGenerator'):
-    logger.info(f"Extracting functions for {generator.project}")
-    tasks = []
-    functions_path = pathlib.Path(
-        generator.oss_fuzz_path) / 'build' / 'functions' / generator.project
-    functions_path.mkdir(parents=True, exist_ok=True)
-    for _, function_info in generator.functions.items():
-        for function, source_path in function_info.items():
-            tasks.append((generator, function, source_path))
-    logger.info(f"Extracting {len(tasks)} functions")
-    Pool(WORKER_COUNT).starmap(extract_for_function_wrapper, tasks)
 
 
 class OSSFuzzDatasetGenerator:
@@ -95,8 +76,17 @@ class OSSFuzzDatasetGenerator:
         for fuzzer in self.fuzzers:
             self.run_coverage_fuzzer(fuzzer)
 
-        with self:
-            parallel_extract(self)
+        with self.start_container():
+            logger.info(f"Extracting functions for {self.project}")
+            tasks = []
+            functions_path = pathlib.Path(
+                self.oss_fuzz_path) / 'build' / 'functions' / self.project
+            functions_path.mkdir(parents=True, exist_ok=True)
+            for _, function_info in self.functions.items():
+                for function, source_path in function_info.items():
+                    tasks.append((function, source_path))
+            logger.info(f"Extracting {len(tasks)} functions")
+            Pool(WORKER_COUNT).starmap(self.extract_for_function, tasks)
 
     def build_fuzzer(self):
         output_path = self.oss_fuzz_path / 'build' / 'out' / self.project
@@ -110,14 +100,24 @@ class OSSFuzzDatasetGenerator:
         cmd = [
             'python3', 'infra/helper.py',
             'build_fuzzers',
+            self.project,
+            os.getcwd(),
+            '--mount_path', '/oss-fuzz',
             '--clean',
             '--sanitizer', sanitizer,
-            self.project,
+            '-e', 'CFLAGS=-fPIC -fvisibility=default -Wl,-export-dynamic -Wno-error',
+            '-e', 'CXXFLAGS=-fPIC -fvisibility=default -Wl,-export-dynamic -Wno-error',
+            '-e', 'CC=clang -L/oss-fuzz -ldummy -Wl,-rpath=/oss-fuzz',
+            '-e', 'CXX=clang++ -L/oss-fuzz -ldummy -Wl,-rpath=/oss-fuzz',
+            '-e', 'LDFLAGS=-Qunused-arguments -L/oss-fuzz -ldummy',
         ]
 
-        logger.info(f"build_fuzzer with cmd: {' '.join(cmd)}")
-        subprocess.run(cmd, cwd=str(
-            self.oss_fuzz_path), stderr=subprocess.PIPE, check=True)
+        logger.info(f"Executing build_fuzzer with command: {cmd}")
+        subprocess.run(
+            cmd,
+            cwd=str(self.oss_fuzz_path),
+            check=True,
+        )
         logger.info(f"Build success for {self.project}")
 
     def run_coverage_fuzzer(self, fuzzer: str):
@@ -170,7 +170,6 @@ class OSSFuzzDatasetGenerator:
         )
 
     def covered_function_fuzzer(self, fuzzer):
-
         stats_path = pathlib.Path(
             self.oss_fuzz_path) / 'build' / 'stats' / self.project / f'{fuzzer}_result.json'
         if not stats_path.exists():
@@ -179,34 +178,32 @@ class OSSFuzzDatasetGenerator:
             data = json.load(f)
         functions = {}
         for function in data['data'][0]['functions']:
-            c_files = [file for file in function['filenames']
-                       if file.endswith('.c')]
+            c_files = [
+                file for file in function['filenames']
+                if file.endswith('.c')
+            ]
             if function['count'] < 10 or not c_files or ':' in function['name'] or function['name'] == 'LLVMFuzzerTestOneInput' or any([fuzzer in file for file in c_files]) or not any([self.project in file for file in c_files]):
                 continue
             functions[function['name']] = c_files[0]
         return functions
 
     def extract_for_function(self, function_name, source_path):
-        logger.info(f"Extracting function {function_name} from {source_path}")
-        cmd = self.compile_command(source_path)
-        if cmd is None:
+        try:
             logger.info(
-                f"Compile command for extracting {source_path} not found")
-            return
-        else:
-            logger.info(f"Compile command for extracting {source_path} found")
+                f"Extracting function {function_name} from {source_path}")
+            cmd = self.compile_command(source_path)
+            self.clang_and_extract(cmd, function_name)
+        except Exception as e:
+            logger.error(f"Error in extracting {function_name}: {e}")
 
-        self.clang_and_extract(cmd, function_name)
-
-    def compile_command(self, source_path):
+    def compile_command(self, source_path) -> List[str]:
         if self._commands is not None:
             return self._commands[source_path]
         compile_commands_path = self.oss_fuzz_path / \
             'build/work' / self.project / 'compile_commands.json'
         if not compile_commands_path.exists():
-            logger.info(
-                f"Compile commands path {compile_commands_path} does not exist, {compile_commands_path}")
-            return None
+            raise Exception(
+                f"Compile commands path {compile_commands_path} does not exist")
         else:
             logger.info(
                 f"Compile commands path {compile_commands_path} exists")
@@ -216,9 +213,8 @@ class OSSFuzzDatasetGenerator:
         for item in compile_commands:
             commands[item['file']] = item
         if source_path not in commands:
-            logger.info(
+            raise Exception(
                 f"Source path {source_path} not found in compile commands")
-            return None
         self._commands = commands
         return commands[source_path]
 
@@ -305,92 +301,87 @@ class OSSFuzzDatasetGenerator:
         self._fuzzers = fuzzers
         return self._fuzzers
 
-    def __enter__(self):
-        challenges_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'challenges' / self.project
-        if not challenges_path.exists():
-            challenges_path.mkdir(parents=True)
+    @contextmanager
+    def start_container(self):
+        try:
+            challenges_path = pathlib.Path(
+                self.oss_fuzz_path) / 'build' / 'challenges' / self.project
+            if not challenges_path.exists():
+                challenges_path.mkdir(parents=True)
 
-        fuzzers_path = self.oss_fuzz_path / 'build' / 'out' / self.project
-        if len(list(fuzzers_path.glob('*.zip'))) == 0:
-            cmd = ['python', f'{self.oss_fuzz_path}/infra/helper.py', 'build_fuzzers', '--clean', '--sanitizer', 'coverage',
-                   self.project]
+            fuzzers_path = self.oss_fuzz_path / 'build' / 'out' / self.project
+            if len(list(fuzzers_path.glob('*.zip'))) == 0:
+                self.build_fuzzer()
+
+            cmd = ['docker', 'rm', '-f', f'{self.project}']
+            result = subprocess.run(cmd, capture_output=True)
+            cmd = [
+                'docker',
+                'run',
+                '-dit',
+                '--privileged',
+                '--name',
+                f'{self.project}',
+
+                '-v',
+                f'{self.oss_fuzz_path}/build/challenges/{self.project}:/challenges',
+                '-v',
+                f'{self.oss_fuzz_path}/build/corpus/{self.project}:/corpus',
+                '-v',
+                f'{self.oss_fuzz_path}/build/out/{self.project}:/out',
+                '--mount', 'type=tmpfs,destination=/dev/shm',
+                '--mount', 'type=tmpfs,destination=/run',
+                '-v',
+                f'{self.oss_fuzz_path}/build/out/{self.project}/src:/src',
+                '-v',
+                f'{self.oss_fuzz_path}/build/functions/{self.project}:/functions',
+                '-v',
+                f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
+                '-v',
+                f'{self.oss_fuzz_path}/build/dummy:/dummy',
+                '-v',
+                f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
+                '-v',
+                f'{os.getcwd()}/fix:/fix',
+                '-v',
+                f'{os.getcwd()}/libdummy.so:/oss-fuzz/libdummy.so',
+
+                '-e',
+                'FUZZING_ENGINE=libfuzzer',
+                '-e',
+                'SANITIZER=coverage',
+                '-e',
+                'ARCHITECTURE=x86_64',
+                '-e',
+                'HELPER=True',
+                '-e',
+                'FUZZING_LANGUAGE=c++',
+                '-e',
+                'CFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
+                '-e',
+                'CXXFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
+                '-e',
+                'CC=clang',
+                '-e',
+                'CXX=clang++',
+                f'gcr.io/oss-fuzz/{self.project}',
+                '/bin/bash'
+            ]
+
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                print(result.stdout.decode())
+                print(result.stderr.decode())
+                raise Exception(
+                    f"Failed to start docker container for {self.project}")
+            else:
+                logger.info(f"Started docker container for {self.project}")
+
+            yield self
+        finally:
+            cmd = ['docker', 'rm', '-f', f'{self.project}']
             subprocess.run(cmd)
-
-        cmd = ['docker', 'rm', '-f', f'{self.project}']
-        result = subprocess.run(cmd, capture_output=True)
-        cmd = [
-            'docker',
-            'run',
-            '-dit',
-            '--privileged',
-            '--name',
-            f'{self.project}',
-            '-v',
-            f'{self.oss_fuzz_path}/build/challenges/{self.project}:/challenges',
-            '-v',
-            f'{self.oss_fuzz_path}/build/corpus/{self.project}:/corpus',
-            '-v',
-            f'{self.oss_fuzz_path}/build/out/{self.project}:/out',
-            '--mount', 'type=tmpfs,destination=/dev/shm',
-            '--mount', 'type=tmpfs,destination=/run',
-            '-v',
-            f'{self.oss_fuzz_path}/build/out/{self.project}/src:/src',
-            '-v',
-            f'{self.oss_fuzz_path}/build/functions/{self.project}:/functions',
-            '-v',
-            f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
-            '-v',
-            f'{self.oss_fuzz_path}/build/dummy:/dummy',
-            '-v',
-            f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
-            '-v',
-            f'{os.getcwd()}/fix:/fix',
-
-            '-e',
-            'FUZZING_ENGINE=libfuzzer',
-            '-e',
-            'SANITIZER=coverage',
-            '-e',
-            'ARCHITECTURE=x86_64',
-            '-e',
-            'HELPER=True',
-            '-e',
-            'FUZZING_LANGUAGE=c++',
-            '-e',
-            'CFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
-            '-e',
-            'CXXFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
-            '-e',
-            'CC=clang',
-            '-e',
-            'CXX=clang++',
-            '-e',
-            'LD_LIBRARY_PATH=/dummy',
-            f'gcr.io/oss-fuzz/{self.project}',
-            '/bin/bash'
-        ]
-
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if result.returncode != 0:
-            raise Exception(
-                f"Failed to start docker container for {self.project}")
-        else:
-            logger.info(f"Started docker container for {self.project}")
-        return self
-
-        chmod_cmd = ['docker', 'exec', f'{self.project}',
-                     'bash', '-c', 'chmod 755 /out/*.zip']
-        chmod_result = subprocess.run(chmod_cmd)
-        if chmod_result.returncode != 0:
-            raise Exception(f"Failed to chmod 755 /out/*.zip")
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        cmd = ['docker', 'rm', '-f', f'{self.project}']
-
-        subprocess.run(cmd)
 
 
 def main():

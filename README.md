@@ -29,6 +29,12 @@ python infra/helper.py build_image base-builder --cache --no-pull
 python infra/helper.py build_image base-runner --cache --no-pull
 ```
 
+Then we compile the dummy library for linking with the fuzzer.
+
+```shell
+docker run -it --rm -w /work -v $(pwd):/work gcr.io/oss-fuzz-base/base-builder clang dummy.c -o libdummy.so -O2 -fPIC -shared
+```
+
 ## Extract Functions
 
 Run `python extract_functions.py --config coverage.yaml`. Initially, execute the fuzzers to collect covered functions, including their names and corresponding files. Coverage information is recorded in `{oss_fuzz_path}/build/stats/{project}/{fuzzer}_result.json`. 
