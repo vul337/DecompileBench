@@ -1,0 +1,25 @@
+diff --git a/infra/helper.py b/infra/helper.py
+index 1d03de9e8..a148a8b33 100755
+--- a/infra/helper.py
++++ b/infra/helper.py
+@@ -435,6 +435,9 @@ def get_parser():  # pylint: disable=too-many-statements,too-many-locals
+                                help='additional arguments to '
+                                'pass to llvm-cov utility.',
+                                nargs='*')
++  coverage_parser.add_argument('--mount',
++                                help='Extra mountpoints. eg: /path/to/host:/path/to/container',
++                                action='append')
+   _add_external_project_args(coverage_parser)
+   _add_architecture_args(coverage_parser)
+ 
+@@ -1273,6 +1276,10 @@ def coverage(args):  # pylint: disable=too-many-branches
+         '%s:%s' % (args.port, args.port),
+     ])
+ 
++  if args.mount:
++    for mount in args.mount:
++      run_args.extend(['-v', mount])
++
+   if args.corpus_dir:
+     if not os.path.exists(args.corpus_dir):
+       logger.error('The path provided in --corpus-dir argument does not '

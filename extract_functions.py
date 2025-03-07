@@ -162,6 +162,7 @@ class OSSFuzzDatasetGenerator:
             'coverage', self.project,
             f'--fuzz-target={fuzzer}',
             f'--corpus-dir={corpus_dir.resolve()}',
+            '--mount', f'{repo_path}:/oss-fuzz',
             '--no-serve',
         ]
         logger.info(f"Running coverage for {fuzzer}, cmd: {' '.join(cmd)}")
