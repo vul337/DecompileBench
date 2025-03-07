@@ -2,6 +2,10 @@
 
 This repository provides scripts and tools for evaluating the performance of decompilation processes using both traditional decompilers and large language models (LLMs).
 
+## Dependencies
+
+LLVM 18, install from [LLVM Debian/Ubuntu nightly packages](https://apt.llvm.org)
+
 ## Preparation
 
 To begin, clone the `oss-fuzz` project.
