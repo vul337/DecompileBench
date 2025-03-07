@@ -63,7 +63,7 @@ To compile the extracted functions, ensure that LLVM and Clang are installed on 
 Set the `oss_fuzz_path` and the desired output path, then execute the following command:
 
 ```shell
-python compile_ossfuzz.py --oss_fuzz_path your_oss_fuzz_path --output your_output_path
+python compile_ossfuzz.py --config coverage.yaml --output output/path/to/the/dataset
 ```
 
 This script organizes all functions into a dataset, formatted as `datasets`. It compiles these functions using `clang`, applying optimization levels from `O0` to `Os`. The resulting binaries are stored in `OUTPUT / 'binary'`, and the final dataset is located in `OUTPUT / 'compiled_ds'`.
