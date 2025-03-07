@@ -1,15 +1,14 @@
 diff --git a/infra/base-images/base-builder/Dockerfile b/infra/base-images/base-builder/Dockerfile
-index 64d11095b..21b186fc6 100644
+index 64d11095b..f929b5eee 100644
 --- a/infra/base-images/base-builder/Dockerfile
 +++ b/infra/base-images/base-builder/Dockerfile
-@@ -210,3 +210,10 @@ ENV CCACHE_COMPILERCHECK none
+@@ -210,3 +210,9 @@ ENV CCACHE_COMPILERCHECK none
  ENV CCACHE_COMPILERTYPE clang
  
  CMD ["compile"]
 +RUN apt install -y pkg-config python3-apt libssl-dev ninja-build &&     git clone https://github.com/rizsotto/Bear -b master --depth 1 &&     cd Bear &&     cmake -DENABLE_UNIT_TESTS=OFF -DENABLE_FUNC_TESTS=OFF -GNinja -B build &&     ninja -C build install &&     cd .. &&     rm -rf Bear
 +
-+COPY bear_config.json /src/bear_config.json
 +ADD clang-extract.tar.gz /src/clang-extract
 +RUN patchelf --set-interpreter "/src/clang-extract/ld-linux-x86-64.so.2" /src/clang-extract/clang-extract
 +
-+CMD ["bear", "--config", "/src/bear_config.json", "--output", "/work/compile_commands.json", "--", "compile"]
++CMD ["bear", "--output", "/work/compile_commands.json", "--", "compile"]
