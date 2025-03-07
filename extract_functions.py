@@ -17,6 +17,8 @@ from loguru import logger
 clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
 index = clang.cindex.Index.create()
 
+repo_path = pathlib.Path(__file__).resolve().parent
+
 
 def is_elf(file_path):
     if file_path.is_dir():
@@ -109,7 +111,7 @@ class OSSFuzzDatasetGenerator:
             'python3', 'infra/helper.py',
             'build_fuzzers',
             self.project,
-            os.getcwd(),
+            repo_path,  # source_path
             '--mount_path', '/oss-fuzz',
             '--clean',
             '--sanitizer', sanitizer,
@@ -361,8 +363,8 @@ class OSSFuzzDatasetGenerator:
                 '-v', f'{self.oss_fuzz_path}/build/functions/{self.project}:/functions',
                 '-v', f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
                 '-v', f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
-                '-v', f'{os.getcwd()}/fix:/fix',
-                '-v', f'{os.getcwd()}/libdummy.so:/oss-fuzz/libdummy.so',
+                '-v', f'{repo_path}/fix:/fix',
+                '-v', f'{repo_path}/libdummy.so:/oss-fuzz/libdummy.so',
 
                 '-e', 'FUZZING_ENGINE=libfuzzer',
                 '-e', 'SANITIZER=coverage',
