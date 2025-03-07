@@ -224,15 +224,10 @@ class OSSFuzzDatasetGenerator:
         functions_path = self.oss_fuzz_path / 'build' / 'functions' / self.project
         output_file_path = functions_path / f'{function_name}.c'
 
-        # if output_file_path.exists():
-        #     return
-        
+        if output_file_path.exists():
+            return
 
         compile_args = cmd_info['arguments'][1:]  # Skip the compiler path
-
-        if 'file_separator.c' in str(output_file_path):
-            print(compile_args)
-            raise Exception("File separator")
 
         try:
             output_file_indicator = compile_args.index('-o')
