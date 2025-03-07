@@ -1,23 +1,22 @@
 
 import argparse
 import json
-import logging
+from loguru import logger
 import os
 import pathlib
 import subprocess
 from multiprocessing import Pool
 
-import clang.cindex
 import datasets
 import lief
+from regex import F
 import yaml
 from datasets import load_from_disk
 from keystone import KS_ARCH_X86, KS_MODE_64, Ks
 
+from extract_functions import OSSFuzzDatasetGenerator
+
 log_path = 'diff_branches_ossfuzz.txt'
-logging.basicConfig(filename=log_path, level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 CODE = b"""" \
 xor rax, rax;
@@ -29,8 +28,6 @@ jmp rax
 # Initialize engine in X86-32bit mode
 ks = Ks(KS_ARCH_X86, KS_MODE_64)
 ENCODING, count = ks.asm(CODE)
-clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
-index = clang.cindex.Index.create()
 
 
 def patch_fuzzer(file_path, target_function, output_file):
@@ -46,176 +43,60 @@ def patch_fuzzer(file_path, target_function, output_file):
     binary.write(output_file)
 
 
-with open('diff_base_result_group.json', 'r') as f:
-    global_data = json.load(f)
+WORKER_COUNT = os.cpu_count()
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description='Generate the dataset for a given project in oss-fuzz')
-    parser.add_argument('--config', type=str,
-                        help='Path to the configuration file')
-    parser.add_argument('--dataset', type=str,
-                        help='Path to the dataset')
-    return parser.parse_args()
-
-
-def is_elf(file_path):
-    if file_path.is_dir():
-        return False
-    with open(file_path, 'rb') as f:
-        elf_magic_number = b'\x7fELF'
-        file_magic_number = f.read(4)
-        return file_magic_number == elf_magic_number
-
-
-pool = Pool(96)
-
-
-def parallel_link_and_test(generator):
-    tasks = []
-    for fuzzer, function_info in generator.functions.items():
-        for function, _ in function_info.items():
-            tasks.append((generator, fuzzer, function))
-    print(f"Linking and testing {len(tasks)} tasks")
-    return pool.starmap(OSSFuzzDatasetGenerator.link_and_test_for_function, tasks)
-
-
-class OSSFuzzDatasetGenerator:
-    def __init__(self, config_path, project):
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
-        self.project = project
-        self.oss_fuzz_path = self.config['oss_fuzz_path']
-        self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
-        self.project_info_path = pathlib.Path(
-            self.projects_path) / project / 'project.yaml'
-        with open(self.project_info_path, 'r') as f:
-            self.project_info = yaml.safe_load(f)
-        self._fuzzers = None
-        self._functions = None
-        self._commands = None
-        self._link = None
-        self.decompilers = self.config['decompilers']
-        self.options = self.config['options']
-
-    def generate(self):
+class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
+    def do_execute(self):
         if 'language' not in self.project_info or self.project_info['language'] not in ['c', 'c++']:
             print(f"Skipping {self.project} as it is not a C/C++ project")
             return
-        logger.info(f"Generating diffing results for {self.project}")
-        with self:
-            logger.info("--- Linking and Testing Fuzzers")
-            return parallel_link_and_test(self)
+        with self.start_container(keep=False):
+            logger.info("Linking and Testing Fuzzers")
+            # return parallel_link_and_test(self)
 
-    def covered_function_fuzzer(self, fuzzer):
+            tasks = []
+            for fuzzer, function_info in self.functions.items():
+                for function, _ in function_info.items():
+                    tasks.append((fuzzer, function))
 
-        stats_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'stats' / self.project / f'{fuzzer}_result.json'
-        if not stats_path.exists():
-            return {}
-        with open(stats_path, 'r') as f:
-            data = json.load(f)
-        functions = {}
-        for function in data['data'][0]['functions']:
-            c_files = [file for file in function['filenames']
-                       if file.endswith('.c')]
-            if function['count'] < 10 or not c_files or ':' in function['name'] or function['name'] == 'LLVMFuzzerTestOneInput' or any([fuzzer in file for file in c_files]) or not any([self.project in file for file in c_files]):
-                continue
-            functions[function['name']] = c_files[0]
-        return functions
+            logger.info(f"Testing {len(tasks)} functions")
+            Pool(WORKER_COUNT).starmap(self.link_and_test_for_function, tasks)
 
-    def compile_command(self, source_path):
-        if self._commands is not None:
-            return self._commands[source_path]
-        compile_commands_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'work' / self.project / 'compile_commands.json'
-        if not compile_commands_path.exists():
-            print(
-                f"Compile commands path {compile_commands_path} does not exist, {compile_commands_path}")
-            return None
-        else:
-            print(f"Compile commands path {compile_commands_path} exists")
-        with open(compile_commands_path, 'r') as f:
-            compile_commands = json.load(f)
-        commands = {}
-        for item in compile_commands:
-            commands[item['file']] = item
-        if source_path not in commands:
-            print(f"Source path {source_path} not found in compile commands")
-            # logger.error(f"Source path {source_path} not found in compile commands")
-            return None
-        # else:
-        #     logger.info(f"Source path {source_path} found in compile commands,output path: {item['output']}")
-        self._commands = commands
-        return commands[source_path]
+    def link_and_test_for_function(self, fuzzer, function_name):
+        base_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / \
+            'challenges' / self.project / function_name / fuzzer / 'base.txt'
+        if base_txt_path.exists():
+            return True
+        try:
+            if self.patch_binary_jmp_to_function(fuzzer, function_name):
+                self.diff_base_for_function(fuzzer, function_name)
+        except Exception as e:
+            logger.error(
+                f"link_and_test_for_function failed: {e}")
+            return
 
-    def link_command(self, fuzzer):
-        return self.link_commands[fuzzer]
+    def patch_binary_jmp_to_function(self, fuzzer, function_name):
+        fuzzer_path = self.oss_fuzz_path / 'build' / 'out' / self.project / fuzzer
+        patched_fuzzer_path = self.oss_fuzz_path / 'build' / 'out' / \
+            self.project / f'{fuzzer}_{function_name}_patched'
 
-    @property
-    def link_commands(self):
-        if self._link is not None:
-            return self._link
-        link_path = pathlib.Path(self.oss_fuzz_path) / \
-            'build' / 'work' / self.project / 'link.json'
-        with open(link_path, 'r') as f:
-            link = json.load(f)
-        self._link = {}
-        for item in link:
-            if not 'output' in item:
-                continue
-            exe = pathlib.Path(item['output']).name
-            if not exe in self.fuzzers:
-                continue
-            self._link[exe] = item
-        return self._link
-
-    @property
-    def functions(self):
-        if self._functions is not None:
-            return self._functions
-        functions = {}
-        for fuzzer in self.fuzzers:
-            functions[fuzzer] = self.covered_function_fuzzer(fuzzer)
-        self._functions = functions
-        return self._functions
-
-    @property
-    def fuzzers(self):
-        if self._fuzzers is not None:
-            return self._fuzzers
-        output_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project
-        fuzzers = [fuzzer.name for fuzzer in output_path.iterdir() if is_elf(
-            fuzzer) and fuzzer.name != 'llvm-symbolizer' and not fuzzer.name.endswith('_patched')]
-        self._fuzzers = fuzzers
-        return self._fuzzers
-
-    def link_for_function(self, fuzzer, function_name):
-        fuzzer_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project / fuzzer
-        final_fuzzer_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project / f'{fuzzer}_{function_name}_patched'
-
-        if os.path.exists(str(fuzzer_path.resolve())):
-            patch_fuzzer(str(fuzzer_path.resolve()), function_name,
-                         str(final_fuzzer_path.resolve()))
-
+        if fuzzer_path.exists():
+            if patched_fuzzer_path.exists():
+                return True
+            patch_fuzzer(
+                str(fuzzer_path.resolve()),
+                function_name,
+                str(patched_fuzzer_path.resolve()),
+            )
             docker_final_fuzzer_path = f'/out/{fuzzer}_{function_name}_patched'
-            cmd = ['docker', 'exec', f'{self.project}',
-                   'chmod', '777', docker_final_fuzzer_path]
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if result.returncode != 0:
-                return False
+            self.exec_in_container(['chmod', '755', docker_final_fuzzer_path])
+            return True
         else:
-            return False
-        return True
+            raise Exception(f"Fuzzer {fuzzer_path} not exists")
 
     def diff_base_for_function(self, fuzzer, function_name):
-        challenges_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project / fuzzer
+        challenges_path = self.oss_fuzz_path / 'build' / 'out' / self.project / fuzzer
         base_lib_path = pathlib.Path(self.oss_fuzz_path) / 'build' / \
             'challenges' / self.project / function_name / 'libfunction.so'
 
@@ -227,11 +108,6 @@ class OSSFuzzDatasetGenerator:
                 f"testing: fuzzer path {challenges_path} does not exist")
             return False
 
-        corpus_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'corpus' / self.project / fuzzer
-        src_path = pathlib.Path(self.oss_fuzz_path) / \
-            'build' / 'out' / self.project / 'src'
-        image_name = f'gcr.io/oss-fuzz/{self.project}'
         base_cmd = ['docker', 'exec', '-e', f'LD_LIBRARY_PATH=/challenges/{function_name}:/work/lib/',
                     '-e', f'LLVM_PROFILE_FILE=/challenges/{function_name}/{fuzzer}/base.profraw', f'{self.project}']
 
@@ -365,127 +241,6 @@ class OSSFuzzDatasetGenerator:
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return True
 
-    def link_and_test_for_function(self, fuzzer, function_name):
-        base_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / \
-            'challenges' / self.project / function_name / fuzzer / 'base.txt'
-        if base_txt_path.exists():
-            return True
-        if self.link_for_function(fuzzer, function_name):
-            self.diff_base_for_function(fuzzer, function_name)
-
-    def __enter__(self):
-        challenges_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'challenges' / self.project
-        if not challenges_path.exists():
-            challenges_path.mkdir(parents=True)
-
-        fuzzers_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'out' / self.project
-        if len(list(fuzzers_path.glob('*.zip'))) == 0:
-            cmd = ['python', f'{self.oss_fuzz_path}/infra/helper.py', 'build_fuzzers', '--clean', '--sanitizer', 'coverage',
-                   self.project]
-            # '-e CFLAGS=-fPIC -fvisibility=default -Wl,--export-dynamic',
-            # '-e CXXFLAGS=-fPIC -fvisibility=default -Wl,--export-dynamic']
-            subprocess.run(cmd)
-
-        cmd = ['docker', 'rm', '-f', f'{self.project}']
-        result = subprocess.run(cmd)
-        cmd = [
-            'docker',
-            'run',
-            '-dit',
-            '--privileged',
-            '--name',
-            f'{self.project}',
-            '-v',
-            f'{self.oss_fuzz_path}/build/challenges/{self.project}:/challenges',
-            '-v',
-            f'{self.oss_fuzz_path}/build/corpus/{self.project}:/corpus',
-            '-v',
-            f'{self.oss_fuzz_path}/build/out/{self.project}:/out',
-            '-v', '/dev/shm:/dev/shm',
-            '-v',
-            f'{self.oss_fuzz_path}/build/out/{self.project}/src:/src',
-            '-v',
-            f'{self.oss_fuzz_path}/build/functions/{self.project}:/functions',
-            '-v',
-            f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
-            '-v',
-            f'{self.oss_fuzz_path}/build/dummy:/dummy',
-            '-v',
-            f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
-            '-v',
-            f'{os.getcwd()}/fix:/fix',
-
-            '-e',
-            'FUZZING_ENGINE=libfuzzer',
-            '-e',
-            'SANITIZER=coverage',
-            '-e',
-            'ARCHITECTURE=x86_64',
-            '-e',
-            'HELPER=True',
-            '-e',
-            'FUZZING_LANGUAGE=c++',
-            '-e',
-            'CFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
-            '-e',
-            'CXXFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
-            '-e',
-            'CC=clang',
-            '-e',
-            'CXX=clang++',
-            '-e',
-            'LD_LIBRARY_PATH=/dummy',
-            f'gcr.io/oss-fuzz/{self.project}',
-            '/bin/bash'
-        ]
-
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if result.returncode != 0:
-            raise Exception(
-                f"Failed to start docker container for {self.project}")
-        else:
-            print(f"Started docker container for {self.project}")
-        return self
-
-        chmod_cmd = ['docker', 'exec', f'{self.project}',
-                     'bash', '-c', 'chmod 755 /out/*.zip']
-        chmod_result = subprocess.run(chmod_cmd)
-        if chmod_result.returncode != 0:
-            raise Exception(f"Failed to chmod 755 /out/*.zip")
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        cmd = ['docker', 'rm', '-f', f'{self.project}']
-
-        subprocess.run(cmd)
-
-
-class OSSFuzzProjects:
-    def __init__(self, config_path, dataset: datasets.Dataset):
-        self.config_path = config_path
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
-        self.oss_fuzz_path = self.config['oss_fuzz_path']
-        self.projects_path = pathlib.Path(self.oss_fuzz_path) / 'projects'
-        self.projects = list(set([dataset[i]['project']
-                             for i in range(len(dataset))]))
-
-    def gen(self):
-        final_result = {}
-        for project in self.projects:
-            try:
-                generator = OSSFuzzDatasetGenerator(self.config_path, project)
-                print(f"Generating {project}")
-                result = generator.generate()
-                final_result[project] = result
-            except KeyboardInterrupt:
-                break
-            except:
-                continue
-
 
 def parse_log(log_path):
     with open(log_path, 'r') as f:
@@ -498,59 +253,65 @@ def parse_log(log_path):
             function = line.split(' ')[-3]
             fuzzer = line.split(' ')[-2]
             options = line.split(' ')[-1]
-            if 'gpt-4o-mini' in options:
-                decompiler = 'gpt-4o-mini'
-                option = options.split('-')[-1]
-            elif 'gpt-4o' in options:
-                decompiler = 'gpt-4o'
-                option = options.split('-')[-1]
-            else:
-                decompiler, option = options.split('-')
-            if project not in target_diff_result:
-                target_diff_result[project] = {}
-            if function not in target_diff_result[project]:
-                target_diff_result[project][function] = {}
-            if decompiler not in target_diff_result[project][function]:
-                target_diff_result[project][function][decompiler] = {}
-            if option not in target_diff_result[project][function][decompiler]:
-                target_diff_result[project][function][decompiler][option] = []
-            target_diff_result[project][function][decompiler][option].append(
-                (fuzzer, True))
+            decompiler, option = options.rsplit('-', 1)
+
+            target_diff_result.setdefault(project, {}) \
+                .setdefault(function, {}) \
+                .setdefault(decompiler, {}) \
+                .setdefault(option, []) \
+                .append((fuzzer, True))
+
         elif 'target txt diff' in line and 'ERROR' in line:
             line = line.split(', differences')[0]
             project = line.split(' ')[-4]
             function = line.split(' ')[-3]
             fuzzer = line.split(' ')[-2]
             options = line.split(' ')[-1]
-            if 'gpt-4o-mini' in options:
-                decompiler = 'gpt-4o-mini'
-                option = options.split('-')[-1]
-            elif 'gpt-4o' in options:
-                decompiler = 'gpt-4o'
-                option = options.split('-')[-1]
-            else:
-                decompiler, option = options.split('-')
-            if project not in target_diff_result:
-                target_diff_result[project] = {}
-            if function not in target_diff_result[project]:
-                target_diff_result[project][function] = {}
-            if decompiler not in target_diff_result[project][function]:
-                target_diff_result[project][function][decompiler] = {}
-            if option not in target_diff_result[project][function][decompiler]:
-                target_diff_result[project][function][decompiler][option] = []
-            if fuzzer not in target_diff_result[project][function][decompiler][option]:
-                target_diff_result[project][function][decompiler][option].append(
-                    (fuzzer, False))
+            decompiler, option = options.rsplit('-', 1)
+
+            target_diff_result.setdefault(project, {}) \
+                .setdefault(function, {}) \
+                .setdefault(decompiler, {}) \
+                .setdefault(option, []) \
+                .append((fuzzer, False))
 
     return target_diff_result
 
 
 def main():
-    args = parse_args()
+    parser = argparse.ArgumentParser(
+        description='Generate the dataset for a given project in oss-fuzz')
+    parser.add_argument('--config', type=str,
+                        help='Path to the configuration file')
+    parser.add_argument('--dataset', type=str,
+                        help='Path to the dataset')
+    parser.add_argument('--worker-count', type=int,
+                        help='Number of workers to use', default=os.cpu_count())
+    args = parser.parse_args()
+
+    global WORKER_COUNT
+    WORKER_COUNT = args.worker_count
+
     dataset = load_from_disk(args.dataset)
     assert isinstance(dataset, datasets.Dataset)
-    projects = OSSFuzzProjects(args.config, dataset)
-    projects.gen()
+
+    config_path = args.config
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+
+    projects = list(set([
+        dataset[i]['project']
+        for i in range(len(dataset))
+    ]))
+
+    for project in projects:
+        try:
+            evaluator = ReexecutableRateEvaluator(config_path, project)
+            evaluator.do_execute()
+        except KeyboardInterrupt:
+            break
+        except:
+            continue
 
 
 if __name__ == '__main__':
