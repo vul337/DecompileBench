@@ -25,8 +25,8 @@ git apply ../oss-fuzz-patch/*.diff
 Then we build the Docker image.
 
 ```shell
-python infra/helper.py build_image base-builder --cache --no-pull
-python infra/helper.py build_image base-runner --cache --no-pull
+python infra/helper.py build_image base-builder --cache --pull
+python infra/helper.py build_image base-runner --cache --pull
 ```
 
 Then we compile the dummy library for linking with the fuzzer.
