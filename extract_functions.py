@@ -65,6 +65,7 @@ class OSSFuzzDatasetGenerator:
         self._link = None
         self.decompilers = self.config['decompilers']
         self.options = self.config['options']
+        self.line_no_directive_pattern = re.compile(r'^# \d+ ')
 
     def generate(self):
         if 'language' not in self.project_info or self.project_info['language'] not in ['c', 'c++']:
@@ -76,12 +77,17 @@ class OSSFuzzDatasetGenerator:
         for fuzzer in self.fuzzers:
             self.run_coverage_fuzzer(fuzzer)
 
-        with self.start_container():
+        with self.start_container(keep=False):
             logger.info(f"Extracting functions for {self.project}")
             tasks = []
             functions_path = pathlib.Path(
                 self.oss_fuzz_path) / 'build' / 'functions' / self.project
-            functions_path.mkdir(parents=True, exist_ok=True)
+
+            run_in_docker(
+                [self.oss_fuzz_path],
+                f'mkdir -p {functions_path}',
+            )
+
             for _, function_info in self.functions.items():
                 for function, source_path in function_info.items():
                     tasks.append((function, source_path))
@@ -140,8 +146,6 @@ class OSSFuzzDatasetGenerator:
                 f"Coverage skip: Corpus zip file {corpus_zip} does not exist")
             return
 
-        # with zipfile.ZipFile(corpus_zip, 'r') as zip_ref:
-        #     zip_ref.extractall(corpus_dir)
         # Use docker to extract the corpus to avoid permission issues
         run_in_docker(
             [corpus_zip, corpus_dir],
@@ -159,10 +163,6 @@ class OSSFuzzDatasetGenerator:
         logger.info(f"Running coverage for {fuzzer}, cmd: {' '.join(cmd)}")
         subprocess.run(cmd, cwd=cwd, check=True)
         logger.info(f"Coverage success for {fuzzer}")
-
-        # if not stats_result_path.parent.exists():
-        #     stats_result_path.parent.mkdir(parents=True)
-        # shutil.copy(stats_path, stats_result_path)
 
         run_in_docker(
             [self.oss_fuzz_path],
@@ -219,62 +219,77 @@ class OSSFuzzDatasetGenerator:
         return commands[source_path]
 
     def clang_and_extract(self, cmd_info, function_name):
+        cwd = cmd_info['directory']
 
-        args = cmd_info['arguments']
-        if args[1:4] == [
-            "-L/functions",
-            "-lfunction",
-            "-Wl,-rpath=.",
-        ]:
-            args[1:4] = []
-        functions_path = pathlib.Path(
-            self.oss_fuzz_path) / 'build' / 'functions' / self.project
-        if not functions_path.exists():
-            functions_path.mkdir(parents=True)
+        functions_path = self.oss_fuzz_path / 'build' / 'functions' / self.project
         output_file_path = functions_path / f'{function_name}.c'
 
         if output_file_path.exists():
             return
 
-        args.extend(['-E', '-C', '-fdirectives-only'])
-        cwd = cmd_info['directory']
-        cmd = ['docker', 'exec', '-w', cwd, f'{self.project}']
-        cmd.extend(args)
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if result.returncode != 0:
-            logger.error(f"clang failed: {result.stderr.decode()}")
-            logger.error(f"Commands: {' '.join(cmd)}")
-            return
-        else:
-            logger.info(f"clang success: {output_file_path}")
+        compile_args = cmd_info['arguments'][1:]  # Skip the compiler path
 
-            line_no_directive_pattern = re.compile(r'^# \d+ ')
-            try:
-                with tempfile.NamedTemporaryFile(dir="/dev/shm/", mode="w+", delete=True) as temp_file:
-                    for line in result.stdout.decode().splitlines():
-                        if line_no_directive_pattern.match(line):
-                            continue
-                        temp_file.write(line + '\n')
-                args_extract = [
-                    '/src/clang-extract/clang-extract', temp_file.name,
+        try:
+            output_file_indicator = compile_args.index('-o')
+            compile_args[output_file_indicator: output_file_indicator + 2] = []
+        except ValueError:
+            pass
+
+        def clang_extract_directly():
+            cmd = [
+                'docker', 'exec', '-w', cwd, f'{self.project}',
+                '/src/clang-extract/clang-extract',
+                '-I/usr/local/lib/clang/18/include',
+                '-I/usr/local/include',
+                '-I/usr/include/x86_64-linux-gnu',
+                '-I/usr/include',
+                *compile_args,
+                f'-DCE_EXTRACT_FUNCTIONS={function_name}',
+                f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
+                # '-c'  # Add -c flag to generate exactly one compiler job
+            ]
+            subprocess.run(cmd, check=True)
+
+        def preprocess_then_clang_extract():
+            cmd = [
+                'docker', 'exec',
+                '-w', cwd,
+                f'{self.project}',
+                *compile_args,
+                '-E', '-C', '-fdirectives-only'
+            ]
+            clang_result = subprocess.run(
+                cmd, check=True, stdout=subprocess.PIPE)
+
+            code = '\n'.join([
+                line for line in clang_result.stdout.decode().splitlines()
+                if not self.line_no_directive_pattern.match(line)
+            ])
+            assert code, "Preprocessed code is empty"
+
+            with tempfile.NamedTemporaryFile(prefix="/dev/shm/oss-fuzz-", mode="w", suffix='.c', delete=True) as temp_file:
+                temp_file.write(code)
+                temp_file.flush()
+
+                compile_options = [
+                    a for a in compile_args if a.startswith('-')
+                ]
+
+                cmd = [
+                    'docker', 'exec', '-w', cwd, f'{self.project}',
+                    '/src/clang-extract/clang-extract',
+                    *compile_options,
+                    temp_file.name,
                     f'-DCE_EXTRACT_FUNCTIONS={function_name}',
                     f'-DCE_OUTPUT_FILE=/functions/{function_name}.c',
                     '-c'  # Add -c flag to generate exactly one compiler job
                 ]
-            except Exception as e:
-                return
-            try:
-                cmd = ['docker', 'exec', '-w', cwd, f'{self.project}']
-                cmd.extend(args_extract)
-                result = subprocess.run(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            except Exception as e:
-                logger.error(f"extract error: {e}")
-            if result.returncode != 0:
-                logger.error(
-                    f"clang-extract failed: /functions/{function_name}.c")
-                return
+                subprocess.run(cmd, check=True)
+
+        try:
+            clang_extract_directly()
+        except Exception:
+            preprocess_then_clang_extract()
 
     @property
     def functions(self):
@@ -302,7 +317,7 @@ class OSSFuzzDatasetGenerator:
         return self._fuzzers
 
     @contextmanager
-    def start_container(self):
+    def start_container(self, keep: bool = False):
         try:
             challenges_path = pathlib.Path(
                 self.oss_fuzz_path) / 'build' / 'challenges' / self.project
@@ -323,47 +338,27 @@ class OSSFuzzDatasetGenerator:
                 '--name',
                 f'{self.project}',
 
-                '-v',
-                f'{self.oss_fuzz_path}/build/challenges/{self.project}:/challenges',
-                '-v',
-                f'{self.oss_fuzz_path}/build/corpus/{self.project}:/corpus',
-                '-v',
-                f'{self.oss_fuzz_path}/build/out/{self.project}:/out',
-                '--mount', 'type=tmpfs,destination=/dev/shm',
-                '--mount', 'type=tmpfs,destination=/run',
-                '-v',
-                f'{self.oss_fuzz_path}/build/out/{self.project}/src:/src',
-                '-v',
-                f'{self.oss_fuzz_path}/build/functions/{self.project}:/functions',
-                '-v',
-                f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
-                '-v',
-                f'{self.oss_fuzz_path}/build/dummy:/dummy',
-                '-v',
-                f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
-                '-v',
-                f'{os.getcwd()}/fix:/fix',
-                '-v',
-                f'{os.getcwd()}/libdummy.so:/oss-fuzz/libdummy.so',
+                '-v', '/dev/shm:/dev/shm',
+                '-v', f'{self.oss_fuzz_path}/build/challenges/{self.project}:/challenges',
+                '-v', f'{self.oss_fuzz_path}/build/corpus/{self.project}:/corpus',
+                '-v', f'{self.oss_fuzz_path}/build/out/{self.project}:/out',
+                '-v', f'{self.oss_fuzz_path}/build/out/{self.project}/src:/src',
+                '-v', f'{self.oss_fuzz_path}/build/functions/{self.project}:/functions',
+                '-v', f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
+                '-v', f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
+                '-v', f'{os.getcwd()}/fix:/fix',
+                '-v', f'{os.getcwd()}/libdummy.so:/oss-fuzz/libdummy.so',
 
-                '-e',
-                'FUZZING_ENGINE=libfuzzer',
-                '-e',
-                'SANITIZER=coverage',
-                '-e',
-                'ARCHITECTURE=x86_64',
-                '-e',
-                'HELPER=True',
-                '-e',
-                'FUZZING_LANGUAGE=c++',
-                '-e',
-                'CFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
-                '-e',
-                'CXXFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
-                '-e',
-                'CC=clang',
-                '-e',
-                'CXX=clang++',
+                '-e', 'FUZZING_ENGINE=libfuzzer',
+                '-e', 'SANITIZER=coverage',
+                '-e', 'ARCHITECTURE=x86_64',
+                '-e', 'HELPER=True',
+                '-e', 'FUZZING_LANGUAGE=c++',
+                '-e', 'CFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
+                '-e', 'CXXFLAGS= -fPIC -fvisibility=default  -Wl,-export-dynamic -Wno-error -Qunused-arguments',
+                '-e', 'CC=clang',
+                '-e', 'CXX=clang++',
+
                 f'gcr.io/oss-fuzz/{self.project}',
                 '/bin/bash'
             ]
@@ -380,8 +375,9 @@ class OSSFuzzDatasetGenerator:
 
             yield self
         finally:
-            cmd = ['docker', 'rm', '-f', f'{self.project}']
-            subprocess.run(cmd)
+            if not keep:
+                cmd = ['docker', 'rm', '-f', f'{self.project}']
+                subprocess.run(cmd)
 
 
 def main():
