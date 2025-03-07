@@ -268,7 +268,8 @@ class OSSFuzzDatasetGenerator:
             assert code, "Preprocessed code is empty"
 
             with tempfile.NamedTemporaryFile(prefix="/dev/shm/oss-fuzz-", mode="w", suffix='.c', delete=True) as temp_file:
-                temp_file.write(code)
+                temp_file.write(code.replace(
+                    '__attribute__((visibility("hidden")))', '__attribute__((visibility("default")))'))
                 temp_file.flush()
 
                 compile_options = [
@@ -290,6 +291,14 @@ class OSSFuzzDatasetGenerator:
             clang_extract_directly()
         except Exception:
             preprocess_then_clang_extract()
+
+        self.exec_in_container(
+            [
+                'bash', '-c',
+                f'sed -i "s/__visibility__(\\"hidden\\")/__visibility__(\\"default\\")/g" /functions/{function_name}.c',
+            ],
+            cwd,
+        )
 
     @property
     def functions(self):
