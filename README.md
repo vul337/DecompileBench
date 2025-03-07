@@ -37,7 +37,18 @@ docker run -it --rm -w /work -v $(pwd):/work gcr.io/oss-fuzz-base/base-builder c
 
 ## Extract Functions
 
-Run `python extract_functions.py --config coverage.yaml`. Initially, execute the fuzzers to collect covered functions, including their names and corresponding files. Coverage information is recorded in `{oss_fuzz_path}/build/stats/{project}/{fuzzer}_result.json`. 
+```shell
+python extract_functions.py --config coverage.yaml
+```
+
+Optionally, extract only several selected projects with 96 workers
+
+```shell
+python3 extract_functions.py --config coverage.yaml --worker-count 96 --project file,libprotobuf-mutator
+```
+
+
+Initially, execute the fuzzers to collect covered functions, including their names and corresponding files. Coverage information is recorded in `{oss_fuzz_path}/build/stats/{project}/{fuzzer}_result.json`. 
 For each function covered by the fuzzer, use `clang` and `clang-extract` to extract functions with external dependencies from each project, storing them in `f{oss_fuzz_path}/functions/{project}`.
 
 
