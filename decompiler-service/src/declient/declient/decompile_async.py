@@ -94,10 +94,16 @@ class DecompilerClient:
                         if resp["status"] == "completed":
                             async with self.lock:
                                 task["status"] = "completed"
-                                task["result"] = json.loads(resp["result"])
+                                try:
+                                    task["result"] = json.loads(resp["result"])
+                                except json.JSONDecodeError:
+                                    task["status"] = "error"
+                                    task["result"] = resp["result"]
                         elif resp["status"] == "error":
                             async with self.lock:
                                 task["status"] = "error"
+                                task["error"] = resp.get(
+                                    "result", "Unknown error")
             except KeyboardInterrupt:
                 print("Interrupted by user")
             finally:
