@@ -14,12 +14,8 @@ def fix(content,function_name):
     #function declaration
     declaration_pattern = re.compile(r'^[ \t]*(?:[a-zA-Z_][\w\s\*\(\)]*)\s+[a-zA-Z_]\w*\s*\([^;]*\);\s*$')
 
-        # 提取函数名的正则表达式
     function_name_pattern = r'(?P<function_name>[a-zA-Z_]\w*)'
     implementation_pattern = re.compile(r'^[ \t]*(?:[a-zA-Z_][\w\s\*\(\)]*)\s+' + function_name_pattern + r'\s*\([^;]*\)\s*(?!.*;).*{')
-    # function_pattern = re.compile(r'^[ \t]*(?:[a-zA-Z_][\w\s\*\(\)]*)\s+[a-zA-Z_]\w*\s*\([^;]*\)\w*\s*$')
-    # variable declaration
-    # var_pattern = re.compile(r'^[ \t]*(?:[a-zA-Z_][\w\s\*\(\)]*)\s+[a-zA-Z_]\w*\s*;\s*$')
 
     # Remove function declarations
     lines = content.split('\n')
@@ -37,8 +33,7 @@ def fix(content,function_name):
                 line = line.replace(function_name_catched, function_name)
         
         new_lines.append(line)
-        # else:
-        #     print(line) 
+       
     content = '\n'.join(new_lines)
 
     return content

@@ -1,4 +1,5 @@
 # %%
+import argparse
 import json
 import os
 import pathlib
@@ -13,18 +14,18 @@ import datasets
 from tqdm import tqdm
 import re
 import yaml
+from evaluate_rsr import DockerContainer
 
 try:
     clang.cindex.Config.set_library_file(
         '/usr/lib/llvm-16/lib/libclang-16.so.1')
 except Exception:
     pass
+repo_path = pathlib.Path(__file__).resolve().parent
 
-import argparse
 
 parser = argparse.ArgumentParser(description="Compile OSS-Fuzz projects")
-parser.add_argument('--config', type=str,
-                    default='/mnt/data/oss-fuzz', help='Path to the OSS-Fuzz directory')
+parser.add_argument('--config', type=str)
 parser.add_argument('--output', type=str, default='./dataset/ossfuzz',
                     help='Output directory for compiled datasets')
 parser.add_argument('--num_workers', type=int, default=os.cpu_count(),
@@ -145,7 +146,6 @@ def process_project(project):
                         'project': project.stem,
                         'file': file.stem,
                         'func': test_func,
-                        'test': '',
                         'include': include_content_part1 + include_content_part2,
                     })
     return test_list
@@ -182,11 +182,10 @@ extra_flags = ' '.join([
 ])
 
 
-def compile(row):
+def compile(row, container: DockerContainer):
     idx = f"{row['project']}_{row['file']}"
     include = row['include']
     func = row['func']
-    test = row['test']
     function_name = row['file']
 
     challenge = []
@@ -198,15 +197,14 @@ def compile(row):
                 f.write(include)
                 f.write('\n')
                 f.write(func)
-                f.write('\n')
-                f.write(test)
 
             output_file = OUTPUT_BINARY_PATH / f'task-{idx}-{opt}.so'
-            subprocess.run(
-                f"clang {filepath} -{opt} -shared -fPIC -o {output_file} {extra_flags} -lm",
-                shell=True,
-                check=True,
-            )
+            output_file_indocker = pathlib.Path(
+                '/challenges') / f'task-{idx}-{opt}.so'
+            cmd = ['clang', filepath, f'-{opt}', '-shared', '-fPIC',
+                   '-o', output_file_indocker, extra_flags, '-lm']
+            container.exec_in_container(
+                cmd, cwd='/challenges', shell=True, check=True)
 
             ret = subprocess.run(
                 f'nm {output_file} | egrep " {function_name}$"', stdout=subprocess.PIPE, shell=True, check=True)
@@ -228,15 +226,19 @@ def compile(row):
     return challenge
 
 
-def tqdm_progress_map(func, iterable, num_workers):
+def tqdm_progress_map(func, iterable, num_workers, container):
     results = []
     with Pool(num_workers) as pool:
-        for result in tqdm(pool.imap_unordered(func, iterable), total=len(iterable)):
+        for result in tqdm(pool.imap_unordered(func, iterable, container), total=len(iterable)):
             results.append(result)
     return results
 
 
-res = tqdm_progress_map(compile, ds, args.num_workers)
+with DockerContainer('evaluate_in_docker', {
+    f'{OUTPUT_PATH}': '/challenges',
+    '/dev/shm': '/dev/shm'
+}) as container:
+    res = tqdm_progress_map(compile, ds, args.num_workers, container)
 res = list(chain(*res))
 ds = datasets.Dataset.from_list(res)
 print(len(ds))

@@ -326,11 +326,15 @@ class OSSFuzzDatasetGenerator:
         self._fuzzers = fuzzers
         return self._fuzzers
 
-    def exec_in_container(self, cmd, cwd=None, **kwargs):
+    def exec_in_container(self, cmd, cwd=None, envs=[], **kwargs):
         if not self.container_running:
             raise Exception("Container is not running")
         cmd = [
-            'docker', 'exec', '-w', cwd or self.oss_fuzz_path, self.container_name, *cmd
+            'docker', 'exec',
+            '-w', cwd or self.oss_fuzz_path,
+            *sum([['-e', e] for e in envs], []),
+            self.container_name,
+            *cmd
         ]
         return subprocess.run(cmd, check=True, **kwargs)
 

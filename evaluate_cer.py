@@ -15,6 +15,7 @@ from datasets import load_from_disk
 from keystone import KS_ARCH_X86, KS_MODE_64, Ks
 
 from extract_functions import OSSFuzzDatasetGenerator
+from extract_functions import run_in_docker
 
 log_path = 'diff_branches_ossfuzz.txt'
 
@@ -108,75 +109,46 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                 f"testing: fuzzer path {challenges_path} does not exist")
             return False
 
-        base_cmd = ['docker', 'exec', '-e', f'LD_LIBRARY_PATH=/challenges/{function_name}:/work/lib/',
-                    '-e', f'LLVM_PROFILE_FILE=/challenges/{function_name}/{fuzzer}/base.profraw', f'{self.project}']
-
-        cmd = base_cmd + [
+        cmd = [
             'bash',
             '-c',
-            f'LD_PRELOAD=/challenges/{function_name}/libfunction.so /out/{fuzzer}_{function_name}_patched -runs=0 -seed=3918206239 /corpus/{fuzzer} &&\
-            llvm-profdata merge -sparse /challenges/{function_name}/{fuzzer}/base.profraw -o /challenges/{function_name}/{fuzzer}/base.profdata &&\
-            llvm-cov show -instr-profile /challenges/{function_name}/{fuzzer}/base.profdata -object=/out/{fuzzer}_{function_name}_patched > /challenges/{function_name}/{fuzzer}/base.txt'
+            f'''\
+            /out/{fuzzer}_{function_name}_patched -runs=0 -seed=3918206239 /corpus/{fuzzer}
+            && llvm-profdata merge -sparse $LLVM_PROFILE_FILE -o $OUTPUT_PROFDATA
+            && llvm-cov show -instr-profile $OUTPUT_PROFDATA -object=/out/{fuzzer}_{function_name}_patched > $OUTPUT_TXT'''
         ]
 
-        base_cmd1 = ['docker', 'exec', '-e', f'LD_LIBRARY_PATH=/challenges/{function_name}:/work/lib/',
-                     '-e', f'LLVM_PROFILE_FILE=/challenges/{function_name}/{fuzzer}/base1.profraw', f'{self.project}']
-        cmd1 = base_cmd1 + [
-            'bash',
-            '-c',
-            f'LD_PRELOAD=/challenges/{function_name}/libfunction.so /out/{fuzzer}_{function_name}_patched -runs=0 -seed=3918206239 /corpus/{fuzzer} &&\
-            llvm-profdata merge -sparse /challenges/{function_name}/{fuzzer}/base1.profraw -o /challenges/{function_name}/{fuzzer}/base1.profdata &&\
-            llvm-cov show -instr-profile /challenges/{function_name}/{fuzzer}/base1.profdata -object=/out/{fuzzer}_{function_name}_patched > /challenges/{function_name}/{fuzzer}/base1.txt'
-
-        ]
         base_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / \
             'challenges' / self.project / function_name / fuzzer / 'base.txt'
-        base_txt_path1 = pathlib.Path(self.oss_fuzz_path) / 'build' / \
-            'challenges' / self.project / function_name / fuzzer / 'base1.txt'
-        try:
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
-            result.check_returncode()
+        max_trails = 3
+        txt_length = 0
+        log_set = []
+        for _ in range(max_trails):
+            try:
+                result = self.exec_in_container(cmd=cmd, envs=[
+                    f'LD_LIBRARY_PATH=/challenges/{function_name}:/work/lib/',
+                    f'LLVM_PROFILE_FILE=/challenges/{function_name}/{fuzzer}/base.profraw',
+                    f'OUTPUT_PROFDATA=/challenges/{function_name}/{fuzzer}/base.profdata',
+                    f'OUTPUT_TXT=/challenges/{function_name}/{fuzzer}/base.txt',
+                    f'LD_PRELOAD=/challenges/{function_name}/libfunction.so',
+                ], timeout=240)
+                result.check_returncode()
+                with open(str(base_txt_path), 'r') as f:
+                    base_result = f.read()
+                if txt_length != 0 and len(base_result) != txt_length:
+                    logger.error(
+                        f"base txt length mismatch, expected {txt_length}, got {len(base_result)}")
+                    return False
+                txt_length = len(base_result)
+                if len(log_set) == 0:
+                    log_set = [set() for _ in range(txt_length)]
+                for i, line in enumerate(base_result):
+                    log_set[i].add(line)
 
-        except Exception as e:
-            logger.error(
-                f"base txt generation failed:{e},{result.stderr.decode()},{result.stdout.decode()}")
-            if 'undefined symbol:' in result.stdout.decode():
-                try:
-                    undefined_symbol = result.stdout.decode().split(
-                        'undefined symbol:')[1].strip()
-                    cmd = [
-                        'nm', '-D', f'/out/{fuzzer}_{function_name}_patched', '|', 'grep', undefined_symbol]
-                    result = subprocess.run(
-                        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    logger.info(
-                        f"undefined symbol: {undefined_symbol}, {result.stdout.decode()}")
-                except Exception as e:
-                    logger.error(f"undefined symbol extraction failed, {e}")
-            return False
-
-        try:
-            result1 = subprocess.run(
-                cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
-            result1.check_returncode()
-        except Exception as e:
-            return False
-
-        try:
-            with open(str(base_txt_path), 'r') as f:
-                base_result = f.read()
-            with open(str(base_txt_path1), 'r') as f:
-                base_result1 = f.read()
-            min_length = min(len(base_result), len(base_result1))
-            differences = []
-            for i in range(min_length):
-                if base_result[i] != base_result1[i]:
-                    differences.append(i)
-            # if len(differences) > 0:
-            #     logger.info(f"--- base txt diff {self.project} {function_name} {fuzzer} differences: {differences}")
-        except Exception as e:
-            # logger.error(f"testing: diffing base profraw failed: - {e}")
-            return False
+            except Exception as e:
+                logger.error(
+                    f"base txt generation failed:{e},{result.stderr.decode()},{result.stdout.decode()}")
+                return False
 
         target_libs = {}
         for decompiler in self.decompilers:
@@ -188,34 +160,25 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
         for options, target_lib_path in target_libs.items():
             target_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / 'challenges' / \
                 self.project / function_name / fuzzer / f'{options}.txt'
-            base_cmd = ['docker', 'exec', '-e', f'LD_LIBRARY_PATH={target_lib_path}:/work/lib/', '-e',
-                        f'LLVM_PROFILE_FILE=/challenges/{function_name}/{fuzzer}/{options}.profraw', f'{self.project}']
-
-            cmd = base_cmd + [
-                'bash',
-                '-c',
-                f'LD_PRELOAD={target_lib_path}/libfunction.so  /out/{fuzzer}_{function_name}_patched -runs=0 -seed=3918206239 /corpus/{fuzzer} &&\
-                llvm-profdata merge -sparse /challenges/{function_name}/{fuzzer}/{options}.profraw -o /challenges/{function_name}/{fuzzer}/{options}.profdata &&\
-                llvm-cov show -instr-profile /challenges/{function_name}/{fuzzer}/{options}.profdata -object=/out/{fuzzer}_{function_name}_patched > /challenges/{function_name}/{fuzzer}/{options}.txt'
-            ]
             try:
-                result = subprocess.run(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+                result = self.exec_in_container(cmd=cmd, envs=[
+                    f'LD_LIBRARY_PATH=/challenges/{function_name}:/work/lib/',
+                    f'LLVM_PROFILE_FILE=/challenges/{function_name}/{fuzzer}/{options}.profraw',
+                    f'OUTPUT_PROFDATA=/challenges/{function_name}/{fuzzer}/{options}.profdata',
+                    f'OUTPUT_TXT=/challenges/{function_name}/{fuzzer}/{options}.txt',
+                    f'LD_PRELOAD={target_lib_path}/libfunction.so',
+                ], timeout=240)
                 if result.returncode != 0:
-                    # logger.error(
-                    #     f"target txt generation failed: {result.stderr.decode()},{result.stdout.decode()}, target_lib_path:{target_lib_path}")
                     logger.error(
                         f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length: target txt generation failed")
                 else:
-                    # logger.info(
-                    #     f"target txt generation success: {target_txt_path}")
                     with open(str(target_txt_path), 'r') as f:
                         target_result = f.read()
                     target_difference = []
-                    for i in range(min(len(base_result1), len(target_result))):
-                        if base_result1[i] != target_result[i]:
+                    for i, line in enumerate(target_result):
+                        if len(log_set[i]) == 1 and line not in log_set[i]:
                             target_difference.append(i)
-                    if differences == target_difference or len(target_difference) == 0:
+                    if len(target_difference) > 0:
                         logger.info(
                             f"--- target txt diff {self.project} {function_name} {fuzzer} {options}")
                     else:
@@ -224,21 +187,17 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
             except Exception as e:
                 logger.error(
                     f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length: target txt generation failed")
-        cmd = ['docker', 'exec', f'{self.project}']
-        cmd = cmd + [
-            'rm',
-            '-rf',
-            f'/challenges/{function_name}/{fuzzer}/*.txt'
-        ]
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        cmd = ['docker', 'exec', f'{self.project}']
-        cmd = cmd + [
-            'rm',
-            '-f',
-            f'/out/{fuzzer}_{function_name}_patched'
-        ]
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        run_in_docker(
+            [self.oss_fuzz_path],
+            f'''rm -rf /challenges/{function_name}/{fuzzer}/*.txt &&
+            rm -rf /challenges/{function_name}/{fuzzer}/*.profraw &&
+            rm -rf /challenges/{function_name}/{fuzzer}/*.profdata''',
+        )
+        run_in_docker(
+            [self.oss_fuzz_path],
+            f'rm -f /out/{fuzzer}_{function_name}_patched',
+        )
         return True
 
 

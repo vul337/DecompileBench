@@ -1,18 +1,19 @@
 oss_fuzz_path: ./oss-fuzz
 decompilers:
-  - "angr"
-  - "binja"
-  - "dewolf"
-  - "ghidra"
+  # - "angr"
+  # - "binja"
+  # - "dewolf"
+  # - "ghidra"
   - "hexrays"
-  - "mlm"
-  - "retdec"
-  - "llm4decompile"
-  - "qwen"
-  - "deepseek"
-  - "gpt-4o-mini"
-  - "gpt-4o"
-  - "claude"
+#   - "mlm"
+#   - "retdec"
+#   - "llm4decompile"
+#   - "qwen"
+#   - "deepseek"
+#   - "gpt-4o-mini"
+#   - "gpt-4o"
+#   - "claude"
+#   - "func"
 options:
   - O0
   - O1
