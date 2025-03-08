@@ -1,11 +1,4 @@
 oss_fuzz_path: ./oss-fuzz
-env: 
-  CFLAGS: '-fPIC -fvisibility=default  -Wl,--export-dynamic'
-  CXXFLAGS: '-fPIC -fvisibility=default  -Wl,--export-dynamic'
-  CC: 'clang -Wl,--export-dynamic'
-  CXX: 'clang++ -Wl,--export-dynamic'
-sanitizer:
-  - coverage
 decompilers:
   - "angr"
   - "binja"
