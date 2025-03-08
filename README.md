@@ -102,13 +102,23 @@ To start the decompiler service, run:
 python manage.py $enabled_decompilers start
 ```
 
-### Traditional Decompilers
+### `declient`
 
-We use a dedicated client to interact with the decompiler-service. Install the client by:
+We use a dedicated client named `declient` to interact with the decompiler-service. Install the client by:
 
 ```shell
 pip install -e ./decompiler-service/src/declient
 ```
+
+To test the installation, run:
+
+```shell
+python decompiler-service/scripts/test_decompile_async.py
+```
+
+This should return a successful response from the decompiler-service. And the result will be stored in `./my_task_queue.json`
+
+### Traditional Decompilers
 
 To obtain decompiled code from traditional decompilers, run:
 

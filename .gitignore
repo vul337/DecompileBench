@@ -1,3 +1,4 @@
 oss-fuzz
 *.so
 dataset
+*.json
