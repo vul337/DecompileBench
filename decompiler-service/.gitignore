@@ -1,0 +1,7 @@
+__pycache__/
+decompiler-explorer/
+*.egg-info/
+build/
+dist/
+debug/
+scripts/*.json

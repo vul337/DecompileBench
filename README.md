@@ -63,21 +63,57 @@ To compile the extracted functions, ensure that LLVM and Clang are installed on 
 Set the `oss_fuzz_path` and the desired output path, then execute the following command:
 
 ```shell
-python compile_ossfuzz.py --config coverage.yaml --output output/path/to/the/dataset
+python compile_ossfuzz.py --config coverage.yaml --output path/to/the/dataset
 ```
 
-This script organizes all functions into a dataset, formatted as `datasets`. It compiles these functions using `clang`, applying optimization levels from `O0` to `Os`. The resulting binaries are stored in `OUTPUT / 'binary'`, and the final dataset is located in `OUTPUT / 'compiled_ds'`.
+This script organizes all functions into a dataset, formatted as `datasets`. It compiles these functions using `clang`, applying optimization levels from `O0` to `Os`.
+
+The resulting binaries are stored in `path/to/the/dataset/binary`.
+
+The dataset containing the metadata is located in `path/to/the/dataset/compiled_ds`. The metadata includes the function name, the prolouge for the function (macro, structure definition), the address of the target function to be decompiled, and the path to the binary file.
+
+The dataset acts as the ground truth for evaluating is stored in `path/to/the/dataset/eval`. Containing the function name, the prolouge for the function (macro, structure definition), original source code. The columns inside this dataset are a subset of the columns in the `compiled_ds` dataset.
 
 ## Decompilation
 
 This section outlines the scripts used for decompilation, utilizing both traditional decompilers and large language models (LLMs).
 
+### Decompiler-Service
+    
+We utilize a decompiler-service to perform scalable decompilation. The service is hosted on a server.
+
+```shell
+cd decompiler-service
+pip install -r requirements.txt
+```
+
+Then we need to provide the necessary binaries and licenses for the decompilers. For Hex-Rays, BinaryNinja, Dewolf, and etc, you need to have a license for the respective decompiler. Refer to [decompiler-service/README.md](decompiler-service/README.md) for more information.
+
+Build the decompiler images with the following command:
+
+```shell
+enabled_decompilers="--with-angr --with-ghidra --with-recstudio --with-reko --with-retdec --with-binja --with-dewolf --with-hexrays --with-mlm --with-relyze"
+python manage.py $enabled_decompilers build
+```
+
+To start the decompiler service, run:
+
+```shell
+python manage.py $enabled_decompilers start
+```
+
 ### Traditional Decompilers
+
+We use a dedicated client to interact with the decompiler-service. Install the client by:
+
+```shell
+pip install -e ./decompiler-service/src/declient
+```
 
 To obtain decompiled code from traditional decompilers, run:
 
 ```shell
-python decompile.py --dataset ./compiled_ds --output ./decompile_result
+python decompile.py --dataset path/to/the/dataset --output ./decompile_result
 ```
 
 - `dataset`: Path to the dataset output from the previous compilation step.

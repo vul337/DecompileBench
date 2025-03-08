@@ -1,0 +1,333 @@
+version: '3'
+
+x-decompiler: &default-decompiler-options
+    init: true
+    depends_on:
+        - redis
+    deploy:
+        replicas: 1
+    networks:
+        - service_net
+
+services:
+    # Main service
+    server:
+        environment:
+            - DECOMPILERS=${DECOMPILERS:-binja,hexrays,mlm,dewolf,ghidra,angr,retdec,reko}
+            - WEB_CONCURRENCY=${WEB_CONCURRENCY:-4}
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.server
+        image: ${IMAGE_NAME:-decompiler_service}:server
+        container_name: decompiler-service-server
+        command:
+            [
+                "uvicorn",
+                "server.main:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8000",
+                "--log-level",
+                "info",
+                "--timeout-keep-alive",
+                "600"
+            ]
+        volumes:
+            - ./src/server:/app/server
+        networks:
+            - service_net
+        depends_on:
+            - redis
+        ports:
+            - "12337:8000"
+
+    redis:
+        image: "redis:alpine"
+        container_name: decompiler-service-redis
+        networks:
+            - service_net
+
+    monitor:
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.monitor
+        image: ${IMAGE_NAME:-decompiler_service}:monitor
+        container_name: decompiler-service-monitor
+        command:
+            [
+                "celery",
+                "--broker=redis://redis:6379/0",
+                "flower",
+            ]
+        networks:
+            - service_net
+        depends_on:
+            - redis
+        ports:
+            - "5555:5555"
+    
+    # Decompilers
+    binja:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:binja
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: binja
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/binja:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "binja_queue",
+                "--loglevel=DEBUG",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "binja-worker@%%h"
+            ]
+        environment:
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=binja_worker
+
+    ghidra:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:ghidra
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: ghidra
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/ghidra:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "ghidra_queue",
+                "--loglevel=INFO",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "ghidra-worker@%%h"
+            ]
+        environment:
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=ghidra_worker
+        
+
+    angr:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:angr
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: angr
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/angr:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "angr_queue",
+                "--loglevel=INFO",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "angr-worker@%%h"
+            ]
+        environment:
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=ghidra_worker
+
+    snowman:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:snowman
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: snowman
+
+    retdec:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:retdec
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: retdec
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/retdec:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "retdec_queue",
+                "--loglevel=INFO",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "retdec-worker@%%h"
+            ]
+        environment:
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=retdec_worker
+
+    recstudio:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:recstudio
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: recstudio
+
+    boomerang:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:boomerang
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: boomerang
+
+    reko:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:reko
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: reko
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/reko:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "reko_queue",
+                "--loglevel=INFO",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "reko-worker@%%h"
+            ]
+        environment:
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=reko_worker
+
+    hexrays:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:hexrays
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: hexrays
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/hexrays:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "hexrays_queue",
+                "--loglevel=INFO",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "hexrays-worker@%%h"
+            ]
+        environment:
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=hexrays_worker
+
+    mlm:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:mlm
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: mlm
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/mlm:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "mlm_queue",
+                "--loglevel=INFO",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "mlm-worker@%%h"
+            ]
+        environment:
+            - MLM_BASE_URL=${MLM_BASE_URL:-https://mlm01.com}
+            - MLM_API_KEY=${MLM_API_KEY:-apikey}
+            - MODEL_NAME=${MODEL_NAME:-mlm}
+            - TEMPERATURE=${TEMPERATURE:-0.1}
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=mlm_worker
+
+    dewolf:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:dewolf
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: dewolf
+        volumes:
+            - ./src/server:/home/decompiler_user/server
+            - ./src/runners/dewolf:/runners
+        entrypoint:
+            [
+                "celery",
+                "-A",
+                "server.worker",
+                "worker",
+                "-Q",
+                "dewolf_queue",
+                "--loglevel=INFO",
+                "-c",
+                "${CONCURRENCY:-6}",
+                "-n",
+                "dewolf-worker@%%h"
+            ]
+        environment:
+            - DECOMPILER_TIMEOUT=${DECOMPILER_TIMEOUT:-120}
+            - DECOMPILER_WORKER=dewolf_worker
+
+    relyze:
+        <<: *default-decompiler-options
+        image: ${IMAGE_NAME:-decompiler_service}:relyze
+        build:
+            context: .
+            dockerfile: docker/Dockerfile.runner
+            target: relyze
+
+networks:
+    service_net:
