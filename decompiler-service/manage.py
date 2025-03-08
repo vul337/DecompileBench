@@ -72,7 +72,7 @@ start_parser.add_argument(
     "--replicas", default=1, help="Number of replicas for the decompiler runners"
 )
 start_parser.add_argument(
-    "--timeout", help="Timeout duration for runners (default: 120)"
+    "--timeout", default=1200, help="Timeout duration for runners (default: 120)"
 )
 
 stop_parser = subparsers.add_parser("stop")

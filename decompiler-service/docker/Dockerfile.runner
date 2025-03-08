@@ -62,6 +62,7 @@ RUN wget https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghid
 
 ENV GHIDRA_INSTALL_DIR /home/decompiler_user/ghidra
 RUN python -m pip install pyhidra lief
+RUN python -m pip install angr
 
 # Snowman
 FROM base-x86 as snowman

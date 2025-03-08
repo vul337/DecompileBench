@@ -2,11 +2,13 @@ import pyhidra
 import argparse
 import lief
 import json
+import angr
 from ghidra.app.decompiler.flatapi import FlatDecompilerAPI
 
+
 def is_pie(file_path):
-    binary = lief.parse(file_path)
-    return binary.is_pie
+    p = angr.Project(file_path, auto_load_libs=False, load_debug_info=False)
+    return p.loader.main_object.pic
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Decompile functions at given addresses in a binary.')
@@ -28,7 +30,7 @@ def decompile_functions(binary_path, addresses):
                 baseAddress = program.getImageBase()
                 return baseAddress.add(offset)
         
-        addr = getAddress(int(addresses[0], 16))  
+        addr = getAddress(int(addresses[0], 16))
         function = fm.getFunctionAt(addr)
         
         decomp_api = FlatDecompilerAPI(flat_api)
