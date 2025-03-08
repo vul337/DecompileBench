@@ -42,13 +42,13 @@ docker run -it --rm -w /work -v $(pwd):/work gcr.io/oss-fuzz-base/base-builder c
 ## Extract Functions
 
 ```shell
-python extract_functions.py --config coverage.yaml
+python extract_functions.py --config config.yaml
 ```
 
 Optionally, extract only several selected projects with 96 workers
 
 ```shell
-python3 extract_functions.py --config coverage.yaml --worker-count 96 --project file,libprotobuf-mutator
+python3 extract_functions.py --config config.yaml --worker-count 96 --project file,libprotobuf-mutator
 ```
 
 
@@ -64,7 +64,7 @@ Set the `oss_fuzz_path` and the desired output path, then execute the following 
 
 ```shell
 export dataset_path=path/to/the/dataset
-python compile_ossfuzz.py --config coverage.yaml --output $dataset_path
+python compile_ossfuzz.py --config config.yaml --output $dataset_path
 ```
 
 This script organizes all functions into a dataset, formatted as `datasets`. It compiles these functions using `clang`, applying optimization levels from `O0` to `Os`.
@@ -170,7 +170,7 @@ Enable the debug parameter to print error messages for specific data. This scrip
 To assess coverage differences before and after replacing with decompiled code, run:
 
 ```shell
-python evaluate_cer.py --dataset ./decompiled_ds_all --config coverage.yaml
+python evaluate_cer.py --dataset ./decompiled_ds_all --config config.yaml
 ```
 
 This script generates coverage reports for each function by linking the reference (base) shared object and the decompiled function's shared object separately.
