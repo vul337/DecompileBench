@@ -63,16 +63,17 @@ To compile the extracted functions, ensure that LLVM and Clang are installed on 
 Set the `oss_fuzz_path` and the desired output path, then execute the following command:
 
 ```shell
-python compile_ossfuzz.py --config coverage.yaml --output path/to/the/dataset
+export dataset_path=path/to/the/dataset
+python compile_ossfuzz.py --config coverage.yaml --output $dataset_path
 ```
 
 This script organizes all functions into a dataset, formatted as `datasets`. It compiles these functions using `clang`, applying optimization levels from `O0` to `Os`.
 
-The resulting binaries are stored in `path/to/the/dataset/binary`.
+The resulting binaries are stored in `$dataset_path/binary`.
 
-The dataset containing the metadata is located in `path/to/the/dataset/compiled_ds`. The metadata includes the function name, the prolouge for the function (macro, structure definition), the address of the target function to be decompiled, and the path to the binary file.
+The dataset containing the metadata is located in `$dataset_path/compiled_ds`. The metadata includes the function name, the prolouge for the function (macro, structure definition), the address of the target function to be decompiled, and the path to the binary file.
 
-The dataset acts as the ground truth for evaluating is stored in `path/to/the/dataset/eval`. Containing the function name, the prolouge for the function (macro, structure definition), original source code. The columns inside this dataset are a subset of the columns in the `compiled_ds` dataset.
+The dataset acts as the ground truth for evaluating and is stored in `$dataset_path/eval`. It contains the function name, the prolouge for the function (macro, structure definition), and the original source code. The columns inside this dataset are a subset of the columns in the `compiled_ds` dataset.
 
 ## Decompilation
 
@@ -110,7 +111,7 @@ We use a dedicated client named `declient` to interact with the decompiler-servi
 pip install -e ./decompiler-service/src/declient
 ```
 
-To test the installation, run:
+To warmup the **decompiler service** (which is **necessary**), run:
 
 ```shell
 python decompiler-service/scripts/test_decompile_async.py
@@ -120,23 +121,23 @@ This should return a successful response from the decompiler-service. And the re
 
 ### Traditional Decompilers
 
-To obtain decompiled code from traditional decompilers, run:
+To obtain decompiled code from traditional decompilers (Make sure the decompiler-service is running and warmed up), execute:
 
 ```shell
-python decompile.py --dataset path/to/the/dataset --output ./decompile_result
+python decompile.py --dataset $dataset_path --output $dataset_path/decompiled_ds --decompilers hexrays
 ```
 
-- `dataset`: Path to the dataset output from the previous compilation step.
+- `dataset`: Path to the dataset from the previous compilation step, it should contain `compiled_ds` and `binary`.
 - `output`: Path where the decompiled code dataset will be stored.
 
 This script interfaces with a server hosting six traditional decompilers, such as Hex-Rays, to request decompiled code asynchronously.
-
+    
 ### LLM Decompilers
 
 To generate decompiled results using general models, execute:
 
 ```shell
-python general_llm.py --dataset ./compiled_ds --output ./test --model Qwen/Qwen2.5-Coder-32B-Instruct
+python general_llm.py --dataset $dataset_path/compiled_ds --output $dataset_path/general_llm_decompiled_ds --model Qwen/Qwen2.5-Coder-32B-Instruct
 ```
 
 This script queries general large language models to produce refined decompiled code, employing few-shot learning techniques as specified in `prompt.md`.
@@ -148,7 +149,7 @@ This script queries general large language models to produce refined decompiled 
 For specialized models hosted locally, run:
 
 ```shell
-python specialized_llm.py --dataset ./compiled_ds --output ./test --model LLM4Binary/llm4decompile-22b-v2
+python specialized_llm.py --dataset $dataset_path/compiled_ds --output $dataset_path/specialized_llm_decompiled_ds --model LLM4Binary/llm4decompile-22b-v2
 ```
 
 The parameters are consistent with the previous section.
