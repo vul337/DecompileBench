@@ -124,8 +124,8 @@ def start_server(args):
 
     if "DECOMPILER_TIMEOUT" in os.environ:
         env["DECOMPILER_TIMEOUT"] = os.environ["DECOMPILER_TIMEOUT"]
-    elif args.timeout is not None:
-        env["DECOMPILER_TIMEOUT"] = args.timeout
+    elif args.timeout:
+        env["DECOMPILER_TIMEOUT"] = str(args.timeout)
 
     if args.debug:
         env["DEBUG"] = "1"
