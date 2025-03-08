@@ -16,6 +16,7 @@ celery_app = Celery(
     DECOMPILER_WORKER, broker="redis://redis:6379/0", backend="redis://redis:6379/1"
 )
 
+
 @celery_app.task
 def run_decompiler_worker(binary: str, address: List[str], decompiler: str, task_uuid: str) -> str:
     try:
@@ -26,7 +27,7 @@ def run_decompiler_worker(binary: str, address: List[str], decompiler: str, task
 
         log_path = f"/tmp/{uuid}.output"
         if decompiler != "ghidra":
-            subprocess.check_output(
+            subprocess.run(
                 [
                     sys.executable,
                     f"/runners/{decompiler}_runner.py",
@@ -39,16 +40,14 @@ def run_decompiler_worker(binary: str, address: List[str], decompiler: str, task
                     "--file",
                     log_path,
                 ],
-                timeout=int(TIMEOUT)
-                # preexec_fn=lambda:set_limits(
-                #     DECOMPILER_MEM_LIMIT_SOFT, DECOMPILER_MEM_LIMIT_HARD
-                # )
+                timeout=int(TIMEOUT),
+                check=True,
             )
             with open(log_path, "r") as f:
                 result = f.read()
             os.system(f"rm {binary_path} {log_path}")
         else:
-            subprocess.check_output(
+            subprocess.run(
                 [
                     "pyhidra",
                     f"/runners/{decompiler}_runner.py",
@@ -61,14 +60,15 @@ def run_decompiler_worker(binary: str, address: List[str], decompiler: str, task
                     "--file",
                     log_path,
                 ],
-                timeout=int(TIMEOUT)
+                timeout=int(TIMEOUT),
+                check=True,
             )
             with open(log_path, "r") as f:
                 result = f.read()
-            os.system(f"rm -rf {binary_path} {log_path} {binary_path+'_ghidra'}")
+            os.system(
+                f"rm -rf {binary_path} {log_path} {binary_path+'_ghidra'}")
         redis_client.set(task_uuid, f"completed:{result}")
         return result
     except Exception as e:
         redis_client.set(task_uuid, f"failed:{str(e)}")
         return str(e)
-    
