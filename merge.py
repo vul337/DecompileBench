@@ -30,6 +30,8 @@ def load_jsonl_dataset(file_path, base_ds_len: int):
             try:
                 item = json.loads(line)
                 if "model" in item:
+                    if model_name:
+                        assert model_name == item["model"], "Multiple model names found"
                     model_name = item["model"]
                 else:
                     idx = item.get("idx")
