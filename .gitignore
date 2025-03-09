@@ -3,3 +3,4 @@ oss-fuzz
 dataset
 *.json
 *.jsonl
+__pycache__

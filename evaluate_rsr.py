@@ -7,25 +7,31 @@ import os
 import pathlib
 import re
 import subprocess
+from typing import Set
 
 import clang.cindex
 import datasets
 import pandas as pd
-from tqdm import tqdm
 import yaml
+from tqdm import tqdm
+
 # %%
 repo_path = pathlib.Path(__file__).resolve().parent
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", type=str)
 parser.add_argument("--dataset", type=str)
+parser.add_argument("--decompilers", type=str, nargs='*', help="Decompilers to evaluate, leave empty to evaluate all decompilers specified in the config")
 args = parser.parse_args()
 
 with open(args.config, 'r') as f:
     config = yaml.safe_load(f)
 
 oss_fuzz_path = pathlib.Path(config['oss_fuzz_path'])
-decompilers = config['decompilers']
+decompilers: Set[str] = set(config['decompilers'])
+
+if args.decompilers:
+    decompilers = decompilers.intersection(set(args.decompilers))
 
 ds_with_decompile_code = datasets.Dataset.load_from_disk(args.dataset)
 

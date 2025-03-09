@@ -37,6 +37,7 @@ with open(args.config, 'r') as f:
     config = yaml.safe_load(f)
 
 oss_fuzz_path = pathlib.Path(config['oss_fuzz_path'])
+opt_options = config['opts']
 OUTPUT_PATH = pathlib.Path(args.output).resolve()
 
 project_path = oss_fuzz_path / 'build' / 'functions'
@@ -192,7 +193,7 @@ def compile(row, container: DockerContainer):
 
     filepath = f'/dev/shm/oss-fuzz-{function_name}.c'
     try:
-        for opt in ['O0', 'O1', 'O2', 'O3', 'Os']:
+        for opt in opt_options:
             with open(filepath, 'w') as f:
                 f.write(include)
                 f.write('\n')

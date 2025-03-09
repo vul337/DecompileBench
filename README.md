@@ -152,7 +152,7 @@ This section describes the evaluation of decompiled code.
 Before evaluation, integrate all decompiler outputs, including those from LLMs, into a single dataset saved at `./decompiled_ds_all`. Then, execute:
 
 ```shell
-python evaluate_rsr.py --decompile_result $dataset_path/decompiled_ds --decompiler all --ossfuzz_path your_oss_fuzz_path
+python evaluate_rsr.py --config config.yaml --decompile_result $dataset_path/decompiled_ds --decompilers hexrays
 ```
 
 Before running, you can set the model's URL (BASE_URL) and API key (API_KEY) in the environment variables.

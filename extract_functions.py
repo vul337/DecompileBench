@@ -69,7 +69,7 @@ class OSSFuzzDatasetGenerator:
         self._commands = None
         self._link = None
         self.decompilers = self.config['decompilers']
-        self.options = self.config['options']
+        self.opt_options = self.config['opts']
 
     def generate(self):
         if 'language' not in self.project_info or self.project_info['language'] not in ['c', 'c++']:

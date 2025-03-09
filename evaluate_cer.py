@@ -152,7 +152,7 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
 
         target_libs = {}
         for decompiler in self.decompilers:
-            for option in self.options:
+            for option in self.opt_options:
                 target_lib_path = pathlib.Path(self.oss_fuzz_path) / 'build' / 'challenges' / \
                     self.project / function_name / option / decompiler / 'libfunction.so'
                 if target_lib_path.exists():

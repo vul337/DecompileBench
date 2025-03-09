@@ -14,7 +14,7 @@ decompilers:
 #   - "gpt-4o"
 #   - "claude"
 #   - "func"
-options:
+opts:
   - O0
   - O1
   - O2
