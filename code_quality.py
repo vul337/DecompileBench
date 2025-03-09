@@ -10,7 +10,7 @@ import re
 import time
 from collections import defaultdict
 from json import JSONDecodeError
-from typing import Any, Callable, List
+from typing import Any, Callable, Dict, List
 
 import datasets
 import json5
@@ -347,7 +347,8 @@ class EnforcePrefixJsonOutputParser(JsonOutputParser):
 
 llm = ChatOpenAI(
     model=args.model,
-    max_tokens=8192, timeout=60 * 60
+    max_completion_tokens=8192,
+    timeout=60 * 60,
 )
 json_output_parser = EnforcePrefixJsonOutputParser()
 str_output_parser = StrOutputParser()
@@ -461,7 +462,7 @@ def execute_from_generator(
 
             available_workers = max(
                 0, max_workers * 2 - len(not_done))
-            print(f"available_workers: {available_workers}")
+
             for _ in range(available_workers):
                 try:
                     task = next(generator)
@@ -473,12 +474,9 @@ def execute_from_generator(
                         ret_list.append(ret)
                 except StopIteration:
                     finished = True
-                    print("finished")
                     break
 
-            print(done)
             for future in done:
-                print(f"future: {future}")
                 task = futures[future]
                 task_exception = future.exception()
                 pbar.update()
@@ -501,7 +499,7 @@ def execute_from_generator(
                 time.sleep(1)
 
 
-def choose_by_elo(rating, model_a):
+def choose_by_elo(rating: Dict[str, int], model_a):
     selection_probs = []
     rating_diff_list = []
     model_list = [model for model in rating.keys() if model != model_a]
@@ -521,17 +519,17 @@ def choose_by_elo(rating, model_a):
     return model_list[selected_b]
 
 
-def get_tasks(df: pd.DataFrame, rating):
+def get_tasks(df: pd.DataFrame, rating: Dict[str, int]):
     decompilers = list(rating.keys())
     for idx, row in df.iterrows():
-        dec_a = np.random.choice(decompilers)
+        dec_a: str = np.random.choice(decompilers)
         source_code = row['func']
-        dec_b = choose_by_elo(rating, dec_a)
+        dec_b: str = choose_by_elo(rating, dec_a)
         if np.random.random() < 0.5:
             dec_a, dec_b = dec_b, dec_a
 
-        dec_a_res = row[dec_a]
-        dec_b_res = row[dec_b]
+        dec_a_res = row[dec_a].item()
+        dec_b_res = row[dec_b].item()
 
         if not dec_a_res or not dec_b_res or dec_a_res == 'none' or dec_b_res == 'none':
             continue
@@ -548,7 +546,7 @@ def get_tasks(df: pd.DataFrame, rating):
         }
 
 
-def run(df: pd.DataFrame, rating, max_workers):
+def run(df: pd.DataFrame, rating: Dict[str, int], max_workers: int):
     result = []
     print("="*15)
     for ret in execute_from_generator(
@@ -611,7 +609,7 @@ def main():
 
     calibrate_model = 'ghidra'
     INIT_RATING = 1000
-    rating = defaultdict(lambda: INIT_RATING)
+    rating: Dict[str, int] = defaultdict(lambda: INIT_RATING)
     for model in decompilers:
         rating[model] = INIT_RATING
     needed_decompiler_ds = datasets.load_from_disk(args.dataset)
