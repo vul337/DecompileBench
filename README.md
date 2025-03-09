@@ -124,7 +124,7 @@ This should return a successful response from the decompiler-service. And the re
 To obtain decompiled code from traditional decompilers (Make sure the decompiler-service is running and warmed up), execute:
 
 ```shell
-python decompile.py --dataset $dataset_path --output $dataset_path/decompiled_ds --decompilers hexrays
+python decompile.py --dataset $dataset_path --output $dataset_path/decompiled_ds_hexrays --decompilers hexrays
 ```
 
 - `dataset`: Path to the dataset from the previous compilation step, it should contain `compiled_ds` and `binary`.
@@ -134,25 +134,9 @@ This script interfaces with a server hosting six traditional decompilers, such a
     
 ### LLM Decompilers
 
-To generate decompiled results using general models, execute:
-
 ```shell
-python general_llm.py --dataset $dataset_path/compiled_ds --output $dataset_path/general_llm_decompiled_ds --model Qwen/Qwen2.5-Coder-32B-Instruct
+python refine.py --dataset $dataset_path/ossfuzz/decompiled_ds_hexrays --model gpt-4o-mini --output-file $dataset_path/gpt-4o-mini.jsonl --concurrency 30
 ```
-
-This script queries general large language models to produce refined decompiled code, employing few-shot learning techniques as specified in `prompt.md`.
-
-- `dataset`: Path to the dataset output from the previous compilation step.
-- `output`: Parent path for the output JSONL file.
-- `model`: Choose from `qwen`, `gpt-4o-mini`, `claude-3-5-sonnet-v2@20241022`, `gpt-4o-2024-11-20`, or `deepseek-coder`.
-
-For specialized models hosted locally, run:
-
-```shell
-python specialized_llm.py --dataset $dataset_path/compiled_ds --output $dataset_path/specialized_llm_decompiled_ds --model LLM4Binary/llm4decompile-22b-v2
-```
-
-The parameters are consistent with the previous section.
 
 ## Evaluation
 
