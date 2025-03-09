@@ -53,7 +53,7 @@ python3 extract_functions.py --config config.yaml --worker-count 96 --project fi
 
 
 Initially, execute the fuzzers to collect covered functions, including their names and corresponding files. Coverage information is recorded in `{oss_fuzz_path}/build/stats/{project}/{fuzzer}_result.json`. 
-For each function covered by the fuzzer, use `clang` and `clang-extract` to extract functions with external dependencies from each project, storing them in `f{oss_fuzz_path}/functions/{project}`.
+For each function covered by the fuzzer, use `clang` and `clang-extract` to extract functions with external dependencies from each project, storing them in `{oss_fuzz_path}/functions/{project}`.
 
 
 ## Compilation
