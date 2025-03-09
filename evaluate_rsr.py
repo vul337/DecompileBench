@@ -1,5 +1,3 @@
-# %%
-
 import argparse
 import importlib
 import multiprocessing
@@ -14,14 +12,19 @@ import datasets
 import pandas as pd
 import yaml
 from tqdm import tqdm
+from libclang import set_libclang_path
 
-# %%
+
+set_libclang_path()
+
 repo_path = pathlib.Path(__file__).resolve().parent
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--config", type=str)
+parser.add_argument('--config', type=str, default="./config.yaml",
+                    help='Path to the configuration file')
 parser.add_argument("--dataset", type=str)
-parser.add_argument("--decompilers", type=str, nargs='*', help="Decompilers to evaluate, leave empty to evaluate all decompilers specified in the config")
+parser.add_argument("--decompilers", type=str, nargs='*',
+                    help="Decompilers to evaluate, leave empty to evaluate all decompilers specified in the config")
 args = parser.parse_args()
 
 with open(args.config, 'r') as f:
@@ -37,10 +40,6 @@ ds_with_decompile_code = datasets.Dataset.load_from_disk(args.dataset)
 
 df = ds_with_decompile_code.to_pandas()
 assert isinstance(df, pd.DataFrame)
-
-
-# %%
-clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
 
 
 class DockerContainer:

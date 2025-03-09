@@ -1,31 +1,28 @@
-# %%
 import argparse
-import json
 import os
 import pathlib
+import re
 import subprocess
 from itertools import chain
 from multiprocessing import Pool
-import tempfile
 
 import clang.cindex
-from loguru import logger
 import datasets
-from tqdm import tqdm
-import re
 import yaml
-from evaluate_rsr import DockerContainer
+from loguru import logger
+from tqdm import tqdm
 
-try:
-    clang.cindex.Config.set_library_file(
-        '/usr/lib/llvm-16/lib/libclang-16.so.1')
-except Exception:
-    pass
+from evaluate_rsr import DockerContainer
+from libclang import set_libclang_path
+
+set_libclang_path()
+
 repo_path = pathlib.Path(__file__).resolve().parent
 
 
 parser = argparse.ArgumentParser(description="Compile OSS-Fuzz projects")
-parser.add_argument('--config', type=str)
+parser.add_argument('--config', type=str, default="./config.yaml",
+                    help='Path to the configuration file')
 parser.add_argument('--output', type=str, default='./dataset/ossfuzz',
                     help='Output directory for compiled datasets')
 parser.add_argument('--num_workers', type=int, default=os.cpu_count(),

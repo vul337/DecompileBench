@@ -240,7 +240,7 @@ def parse_log(log_path):
 def main():
     parser = argparse.ArgumentParser(
         description='Generate the dataset for a given project in oss-fuzz')
-    parser.add_argument('--config', type=str,
+    parser.add_argument('--config', type=str, default="./config.yaml",
                         help='Path to the configuration file')
     parser.add_argument('--dataset', type=str,
                         help='Path to the dataset')

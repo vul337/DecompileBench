@@ -1,12 +1,12 @@
 
 import argparse
-from contextlib import contextmanager
 import json
 import os
 import pathlib
 import re
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from multiprocessing import Pool
 from typing import List
 
@@ -14,7 +14,10 @@ import clang.cindex
 import yaml
 from loguru import logger
 
-clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
+from libclang import set_libclang_path
+
+set_libclang_path()
+
 index = clang.cindex.Index.create()
 
 repo_path = pathlib.Path(__file__).resolve().parent
@@ -412,7 +415,7 @@ class OSSFuzzDatasetGenerator:
 def main():
     parser = argparse.ArgumentParser(
         description='Generate the dataset for a given project in oss-fuzz')
-    parser.add_argument('--config', type=str,
+    parser.add_argument('--config', type=str, default="./config.yaml",
                         help='Path to the configuration file')
     parser.add_argument('--project', type=str,
                         help='Name of the projects, separated by ","', default=None)

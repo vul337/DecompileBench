@@ -39,16 +39,26 @@ Then we compile the dummy library for linking with the fuzzer.
 docker run -it --rm -w /work -v $(pwd):/work gcr.io/oss-fuzz-base/base-builder clang dummy.c -o libfunction.so -O2 -fPIC -shared
 ```
 
+## Config
+
+The default configuration file is located at `config.yaml`, containing:
+
+- `oss_fuzz_path`: The path to the `oss-fuzz` project.
+- `decompilers`: A list of decompilers to be evaluated.
+- `opts`: A list of optimization levels to be evaluated.
+
+Many scripts contain the `--config` parameter to specify the configuration file.
+
 ## Extract Functions
 
 ```shell
-python extract_functions.py --config config.yaml
+python extract_functions.py
 ```
 
 Optionally, extract only several selected projects with 96 workers
 
 ```shell
-python3 extract_functions.py --config config.yaml --worker-count 96 --project file,libprotobuf-mutator
+python3 extract_functions.py --worker-count 96 --project file,libprotobuf-mutator
 ```
 
 
@@ -58,13 +68,16 @@ For each function covered by the fuzzer, use `clang` and `clang-extract` to extr
 
 ## Compilation
 
-To compile the extracted functions, ensure that LLVM and Clang are installed on your system. Specify the library file path, for example, `/usr/lib/llvm-16/lib/libclang-16.so.1`, adjusting it to match your installation path.
+To compile the extracted functions, ensure that LLVM and Clang are installed on your system. 
+
+Specify the libclang library file path in `LIBCLANG_PATH`, for example, `export LIBCLANG_PATH=/usr/lib/llvm-16/lib/libclang-16.so.1`, adjusting it to match your installation path.
 
 Set the `oss_fuzz_path` and the desired output path, then execute the following command:
 
 ```shell
+export LIBCLANG_PATH="/usr/lib/llvm-16/lib/libclang-16.so.1"
 export dataset_path=path/to/the/dataset
-python compile_ossfuzz.py --config config.yaml --output $dataset_path
+python compile_ossfuzz.py --output $dataset_path
 ```
 
 This script organizes all functions into a dataset, formatted as `datasets`. It compiles these functions using `clang`, applying optimization levels from `O0` to `Os`.
@@ -124,8 +137,12 @@ This should return a successful response from the decompiler-service. And the re
 To obtain decompiled code from traditional decompilers (Make sure the decompiler-service is running and warmed up), execute:
 
 ```shell
+# use hexrays to decompile
 python decompile.py --base-dataset-path $dataset_path --output $dataset_path/decompiled_ds_hexrays --decompilers hexrays
+# use ghidra to decompile
 python decompile.py --base-dataset-path $dataset_path --output $dataset_path/decompiled_ds_ghidra --decompilers ghidra
+# or use both hexrays and ghidra to decompile simultaneously
+python decompile.py --base-dataset-path $dataset_path --output $dataset_path/decompiled_ds_ghidra_hexrays --decompilers ghidra,hexrays
 ```
 
 - `dataset`: Path to the dataset from the previous compilation step, it should contain `compiled_ds` and `binary`.
@@ -152,7 +169,7 @@ This section describes the evaluation of decompiled code.
 Before evaluation, integrate all decompiler outputs, including those from LLMs, into a single dataset saved at `./decompiled_ds_all`. Then, execute:
 
 ```shell
-python evaluate_rsr.py --config config.yaml --decompile_result $dataset_path/decompiled_ds --decompilers hexrays
+python evaluate_rsr.py --decompile_result $dataset_path/decompiled_ds --decompilers hexrays
 ```
 
 Before running, you can set the model's URL (BASE_URL) and API key (API_KEY) in the environment variables.
@@ -161,7 +178,7 @@ Enable the debug parameter to print error messages for specific data. This scrip
 To assess coverage differences before and after replacing with decompiled code, run:
 
 ```shell
-python evaluate_cer.py --dataset ./decompiled_ds_all --config config.yaml
+python evaluate_cer.py --dataset $dataset_path/decompiled_ds
 ```
 
 This script generates coverage reports for each function by linking the reference (base) shared object and the decompiled function's shared object separately.
