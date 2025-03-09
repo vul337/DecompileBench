@@ -124,7 +124,8 @@ This should return a successful response from the decompiler-service. And the re
 To obtain decompiled code from traditional decompilers (Make sure the decompiler-service is running and warmed up), execute:
 
 ```shell
-python decompile.py --dataset $dataset_path --output $dataset_path/decompiled_ds_hexrays --decompilers hexrays
+python decompile.py --base-dataset-path $dataset_path --output $dataset_path/decompiled_ds_hexrays --decompilers hexrays
+python decompile.py --base-dataset-path $dataset_path --output $dataset_path/decompiled_ds_ghidra --decompilers ghidra
 ```
 
 - `dataset`: Path to the dataset from the previous compilation step, it should contain `compiled_ds` and `binary`.
@@ -135,7 +136,13 @@ This script interfaces with a server hosting six traditional decompilers, such a
 ### LLM Decompilers
 
 ```shell
-python refine.py --dataset $dataset_path/ossfuzz/decompiled_ds_hexrays --model gpt-4o-mini --output-file $dataset_path/gpt-4o-mini.jsonl --concurrency 30
+python refine.py --dataset $dataset_path/decompiled_ds_hexrays --model gpt-4o-mini --output-file $dataset_path/gpt-4o-mini.jsonl --concurrency 30
+```
+
+### Merge into a single dataset
+
+```shell
+python merge.py --base-dataset-path $dataset_path/ --decompiled-datasets $dataset_path/gpt-4o-mini.jsonl $dataset_path/decompiled_ds_ghidra/ $dataset_path/decompiled_ds_hexrays/ --output $dataset_path/decompiled_ds
 ```
 
 ## Evaluation
@@ -145,7 +152,7 @@ This section describes the evaluation of decompiled code.
 Before evaluation, integrate all decompiler outputs, including those from LLMs, into a single dataset saved at `./decompiled_ds_all`. Then, execute:
 
 ```shell
-python evaluate_rsr.py --decompile_result ./decompiled_ds_all --decompiler all --ossfuzz_path your_oss_fuzz_path
+python evaluate_rsr.py --decompile_result $dataset_path/decompiled_ds --decompiler all --ossfuzz_path your_oss_fuzz_path
 ```
 
 Before running, you can set the model's URL (BASE_URL) and API key (API_KEY) in the environment variables.

@@ -144,16 +144,25 @@ async def main():
 
     # Check for existing results and gather processed indexes
     processed_indexes = set()
+    found_metadata = False
     if Path(output_file).exists():
         with open(output_file, "r") as f:
             for line in f:
                 try:
                     data = json.loads(line)
-                    processed_indexes.add(data["idx"])
+                    if "model" in data:
+                        assert data["model"] == args.model, "Model mismatch"
+                        found_metadata = True
+                    else:
+                        processed_indexes.add(data["idx"])
                 except json.JSONDecodeError:
                     continue
         print(
             f"Found {len(processed_indexes)} already processed items, will skip them.")
+
+    if not found_metadata:
+        with open(output_file, "a") as f:
+            f.write(json.dumps({"model": args.model}) + "\n")  # metadata
 
     dataset = load_from_disk(args.dataset)
     assert isinstance(dataset, datasets.Dataset)

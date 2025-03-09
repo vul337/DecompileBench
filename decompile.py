@@ -13,7 +13,7 @@ from declient import DecompilerClient
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    '--dataset', type=str,
+    '--base-dataset-path', type=str,
 )
 parser.add_argument(
     "--output", type=str,
@@ -48,7 +48,7 @@ if not os.path.exists(args.output):
     os.makedirs(args.output, exist_ok=True)
 only_dump_result = args.only_dump_result
 
-dataset_path = Path(args.dataset)
+dataset_path = Path(args.base_dataset_path)
 
 ds = load_from_disk((dataset_path / 'compiled_ds').as_posix())
 assert isinstance(ds, datasets.Dataset)
