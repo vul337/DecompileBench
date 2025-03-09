@@ -169,11 +169,10 @@ This section describes the evaluation of decompiled code.
 Before evaluation, integrate all decompiler outputs, including those from LLMs, into a single dataset saved at `./decompiled_ds_all`. Then, execute:
 
 ```shell
-python evaluate_rsr.py --decompile_result $dataset_path/decompiled_ds --decompilers hexrays
+python evaluate_rsr.py --decompiled-dataset $dataset_path/decompiled_ds --decompilers hexrays
 ```
 
-Before running, you can set the model's URL (BASE_URL) and API key (API_KEY) in the environment variables.
-Enable the debug parameter to print error messages for specific data. This script recompiles the specified decompiler outputs in Docker, applies fixes, and reports success rates across different optimization levels. Successfully compiled functions are stored as shared libraries in `f'{args.ossfuzz_path}/build/challenges'` for further evaluation.
+Enable the debug parameter to print error messages for specific data. This script recompiles the specified decompiler outputs in Docker, applies fixes, and reports success rates across different optimization levels. Successfully compiled functions are stored as shared libraries in `{oss_fuzz_path}/build/challenges` for further evaluation.
 
 To assess coverage differences before and after replacing with decompiled code, run:
 
@@ -183,7 +182,8 @@ python evaluate_cer.py --dataset $dataset_path/decompiled_ds
 
 This script generates coverage reports for each function by linking the reference (base) shared object and the decompiled function's shared object separately.
 
-Finally, evaluate code quality by running:
+Finally, evaluate code quality:
+Before running, you can set the model's URL (OPENAI_BASE_URL) and API key (OPENAI_API_KEY) in the environment variables.
 
 ```shell
 python code_quality.py --run --model your_model --dataset ./decompiled_ds_all --output your_output_path
