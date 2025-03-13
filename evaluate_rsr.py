@@ -15,7 +15,9 @@ from tqdm import tqdm
 from libclang import set_libclang_path
 
 
-set_libclang_path()
+# set_libclang_path()
+clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
+
 
 repo_path = pathlib.Path(__file__).resolve().parent
 
@@ -72,8 +74,8 @@ class DockerContainer:
         result = subprocess.run(docker_cmd, shell=True,
                                 capture_output=True, text=True)
         if result.returncode != 0:
-            print(result.stdout)
-            print(result.stderr)
+            print(f"stdout: {result.stdout}")
+            print(f"stderr: {result.stderr}")
             exit(1)
         else:
             print(f"Container {self.container_name} created successfully")
@@ -159,7 +161,9 @@ TEMPLATE = """
 
 long int syscall(long number, ...);
 
-__attribute__((constructor)) void initializer() {{
+__attribute__((no_instrument_function))
+__attribute__((constructor))
+void initializer() {{
     unsigned long pagesize = 4096;
     void *desired_addr = (void *)0xbabe0000;
 
@@ -171,7 +175,9 @@ __attribute__((constructor)) void initializer() {{
     *(void **)(0xbabe0000) = {function};
 }}
 
-__attribute__((destructor)) void finalizer() {{
+__attribute__((no_instrument_function))
+__attribute__((destructor))
+void finalizer() {{
     syscall(MUNMAP, (void *)0xbabe0000, 4096);
 }}
 """
@@ -285,7 +291,7 @@ def evaluate_func(args):
 
         return flag_compile
     except Exception as e:
-        print(e)
+        print(f"Error: {e}")
         return 0
 
 

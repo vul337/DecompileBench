@@ -11,3 +11,4 @@ langchain-community
 langchain-openai
 langgraph
 pandas
+pyelftools

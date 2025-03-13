@@ -16,8 +16,8 @@ from loguru import logger
 
 from libclang import set_libclang_path
 
-set_libclang_path()
-
+# set_libclang_path()
+clang.cindex.Config.set_library_file('/usr/lib/llvm-16/lib/libclang-16.so.1')
 index = clang.cindex.Index.create()
 
 repo_path = pathlib.Path(__file__).resolve().parent
@@ -334,7 +334,7 @@ class OSSFuzzDatasetGenerator:
             raise Exception("Container is not running")
         cmd = [
             'docker', 'exec',
-            '-w', cwd or self.oss_fuzz_path,
+            '-w', str(cwd) if cwd else str('/'),
             *sum([['-e', e] for e in envs], []),
             self.container_name,
             *cmd
@@ -378,7 +378,7 @@ class OSSFuzzDatasetGenerator:
                 '-v', f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
                 '-v', f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
                 '-v', f'{repo_path}/fix:/fix',
-                '-v', f'{repo_path}/libfunction.so:/oss-fuzz/libfunction.so',
+                '-v', f'{repo_path}:/oss-fuzz',
 
                 '-e', 'FUZZING_ENGINE=libfuzzer',
                 '-e', 'SANITIZER=coverage',

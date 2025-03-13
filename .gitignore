@@ -4,3 +4,7 @@ dataset
 *.json
 *.jsonl
 __pycache__
+crash-*
+.gdb_history
+*.profraw
+*.txt
