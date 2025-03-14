@@ -53,7 +53,6 @@ def patch_fuzzer(file_path, target_function, output_file):
     binary.write(output_file)
 
 
-
 def get_func_offsets(so_path: pathlib.Path,
                      binary_path: pathlib.Path,
                      output_path: pathlib.Path):
@@ -86,26 +85,27 @@ def get_func_offsets(so_path: pathlib.Path,
                             "so_offset": hex(reloc['r_offset']),
                             "so_func": symbol_name
                         })
-        
+
         # Find binary offsets using pyelftools instead of nm
         with open(binary_path, 'rb') as f:
             binary_elf = ELFFile(f)
-            
+
             # Get all symbol tables
-            symbol_tables = [s for s in binary_elf.iter_sections() 
-                            if isinstance(s, SymbolTableSection)]
-            
+            symbol_tables = [s for s in binary_elf.iter_sections()
+                             if isinstance(s, SymbolTableSection)]
+
             # Create a lookup dictionary for all symbols
             binary_symbols = {}
             for symtab in symbol_tables:
                 for symbol in symtab.iter_symbols():
                     if symbol.name and symbol['st_value'] != 0:
                         binary_symbols[symbol.name] = symbol['st_value']
-            
+
             # Match symbols from so_file with binary symbols
             for item in offset_func:
                 if item['so_func'] in binary_symbols:
-                    item['binary_offset'] = hex(binary_symbols[item['so_func']])
+                    item['binary_offset'] = hex(
+                        binary_symbols[item['so_func']])
 
         with open(output_path, "w") as f:
             f.write(binary_path.name + "\n")
@@ -135,20 +135,24 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                     tasks.append((fuzzer, function))
 
             logger.info(f"Testing {len(tasks)} functions")
-            Pool(WORKER_COUNT).starmap(self.link_and_test_for_function, tasks)
+            results = Pool(WORKER_COUNT).starmap(
+                self.link_and_test_for_function, tasks)
+            self.exec_in_container(
+                [
+                    'bash', '-c',
+                    'rm -rf /out/*_patched',
+                ],
+            )
+            return results
 
     def link_and_test_for_function(self, fuzzer, function_name):
-        base_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / \
-            'challenges' / self.project / function_name / fuzzer / 'base.txt'
-        if base_txt_path.exists():
-            return True
         try:
             if self.patch_binary_jmp_to_function(fuzzer, function_name):
-                self.diff_base_for_function(fuzzer, function_name)
+                return self.diff_base_for_function(fuzzer, function_name)
         except Exception as e:
             logger.error(
                 f"link_and_test_for_function failed: {e}")
-            return
+            return (fuzzer, function_name, {})
 
     def patch_binary_jmp_to_function(self, fuzzer, function_name):
         fuzzer_path = self.oss_fuzz_path / 'build' / 'out' / self.project / fuzzer
@@ -178,12 +182,14 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
 
         if not base_lib_path.exists():
             print(f"base lib path {base_lib_path} does not exist")
-            return False
+            return (fuzzer, function_name, {})
+
         if not patched_fuzzer_path.exists():
             print(f"fuzzer path {patched_fuzzer_path} does not exist")
             logger.error(
                 f"testing: fuzzer path {patched_fuzzer_path} does not exist")
-            return False
+            return (fuzzer, function_name, {})
+
         output_mapping_path = base_lib_path.parent / 'address_mapping.txt'
         get_func_offsets(base_lib_path, patched_fuzzer_path,
                          output_mapping_path)
@@ -210,14 +216,14 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                     f'OUTPUT_TXT=/challenges/{function_name}/{fuzzer}/base.txt',
                     f'MAPPING_TXT=/challenges/{function_name}/address_mapping.txt',
                     f'LD_PRELOAD=/oss-fuzz/ld.so'
-                ], timeout=240)
+                ], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 result.check_returncode()
                 with open(str(base_txt_path), 'r') as f:
                     base_result = f.read()
                 if txt_length != 0 and len(base_result) != txt_length:
                     logger.error(
                         f"base txt length mismatch, expected {txt_length}, got {len(base_result)}")
-                    return False
+                    return (fuzzer, function_name, {})
                 txt_length = len(base_result)
                 if len(log_set) == 0:
                     log_set = [set() for _ in range(txt_length)]
@@ -227,8 +233,9 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
             except Exception as e:
                 logger.error(
                     f"base txt generation failed:{e}")
-                return False
+                return (fuzzer, function_name, {})
 
+        diff_result = {}
         target_libs = {}
         for decompiler in self.decompilers:
             for option in self.opt_options:
@@ -236,6 +243,9 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                     self.project / function_name / option / decompiler / 'libfunction.so'
                 if target_lib_path.exists():
                     target_libs[f'{decompiler}-{option}'] = f'/challenges/{function_name}/{option}/{decompiler}'
+                else:
+                    diff_result[f'{decompiler}-{option}'] = False
+        
         for options, target_lib_path in target_libs.items():
             target_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / 'challenges' / \
                 self.project / function_name / fuzzer / f'{options}.txt'
@@ -247,75 +257,91 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                     f'OUTPUT_TXT=/challenges/{function_name}/{fuzzer}/{options}.txt',
                     f'MAPPING_TXT=/challenges/{function_name}/address_mapping.txt',
                     f'LD_PRELOAD=/oss-fuzz/ld.so',
-                ], timeout=240)
-                if result.returncode != 0:
-                    logger.error(
-                        f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length: target txt generation failed")
+                ], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                result.check_returncode()
+                with open(str(target_txt_path), 'r') as f:
+                    target_result = f.read()
+                target_difference = []
+                for i, line in enumerate(target_result):
+                    if len(log_set[i]) == 1 and line not in log_set[i]:
+                        target_difference.append(i)
+                if len(target_difference) == 0:
+                    logger.info(
+                        f"--- target txt diff {self.project} {function_name} {fuzzer} {options}")
+                    diff_result[options] = True
                 else:
-                    with open(str(target_txt_path), 'r') as f:
-                        target_result = f.read()
-                    target_difference = []
-                    for i, line in enumerate(target_result):
-                        if len(log_set[i]) == 1 and line not in log_set[i]:
-                            target_difference.append(i)
-                    if len(target_difference) == 0:
-                        logger.info(
-                            f"--- target txt diff {self.project} {function_name} {fuzzer} {options}")
-                    else:
-                        logger.error(
-                            f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length:{len(target_difference)}")
+                    logger.error(
+                        f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length:{len(target_difference)}")
+                    diff_result[options] = False
             except Exception as e:
                 logger.error(
-                    f"--- target txt diff {self.project} {function_name} {fuzzer} {options}, differences length: target txt generation failed")
+                    f"--- target txt diff {self.project} {function_name} {fuzzer} {options}: target txt generation failed")
+                diff_result[options] = False
 
-        run_in_docker(
-            [self.oss_fuzz_path],
-            f'''rm -rf /challenges/{function_name}/{fuzzer}/*.txt &&
-            rm -rf /challenges/{function_name}/{fuzzer}/*.profraw &&
-            rm -rf /challenges/{function_name}/{fuzzer}/*.profdata''',
+        self.exec_in_container(
+            [
+                'bash', '-c',
+                f'''
+                    rm -rf /challenges/{function_name}/{fuzzer}/*.txt &&
+                    rm -rf /challenges/{function_name}/{fuzzer}/*.profraw &&
+                    rm -rf /challenges/{function_name}/{fuzzer}/*.profdata
+                ''',
+            ]
         )
-        run_in_docker(
-            [self.oss_fuzz_path],
-            f'rm -f /out/{fuzzer}_{function_name}_patched',
-        )
-        return True
+
+        return (fuzzer, function_name, diff_result)
 
 
-def parse_log(log_path):
-    with open(log_path, 'r') as f:
-        lines = f.readlines()
-    target_diff_result = {}
-    for line in lines:
-        if 'target txt diff' in line and 'INFO' in line:
-            line = line.split('\n')[0]
-            project = line.split(' ')[-4]
-            function = line.split(' ')[-3]
-            fuzzer = line.split(' ')[-2]
-            options = line.split(' ')[-1]
-            decompiler, option = options.rsplit('-', 1)
-
-            target_diff_result.setdefault(project, {}) \
-                .setdefault(function, {}) \
+def process_results(results_list):
+    """Process the results from evaluator.do_execute() into a structured format."""
+    processed_results = {}
+    
+    for result in results_list:
+        if not result or len(result) != 3:
+            continue
+            
+        fuzzer, function, diff_results = result
+        
+        for option_key, success in diff_results.items():
+            decompiler, option = option_key.rsplit('-', 1)
+            
+            # Build the nested dictionary structure
+            processed_results.setdefault(function, {}) \
                 .setdefault(decompiler, {}) \
                 .setdefault(option, []) \
-                .append((fuzzer, True))
+                .append((fuzzer, success))
+    
+    return processed_results
 
-        elif 'target txt diff' in line and 'ERROR' in line:
-            line = line.split(', differences')[0]
-            project = line.split(' ')[-4]
-            function = line.split(' ')[-3]
-            fuzzer = line.split(' ')[-2]
-            options = line.split(' ')[-1]
-            decompiler, option = options.rsplit('-', 1)
+def show_statistics(all_project_results):
+    pass_count = {}
+    total_count = {}
+    
+    # Count passes and totals
+    for project, results in all_project_results.items():
+        pass_count[project] = {}
+        total_count[project] = {}
+        for function, decompiler_results in results.items():
+            for decompiler, option_results in decompiler_results.items():
+                pass_count[project].setdefault(decompiler, {})
+                total_count[project].setdefault(decompiler, {})
+                for option, results in option_results.items():
+                    pass_count[project][decompiler].setdefault(option, 0)
+                    total_count[project][decompiler].setdefault(option, 0)
+                    # Check if all results for this option passed
+                    all_passed = all(result[1] for result in results)
+                    if all_passed:
+                        pass_count[project][decompiler][option] += 1
+                    total_count[project][decompiler][option] += 1
 
-            target_diff_result.setdefault(project, {}) \
-                .setdefault(function, {}) \
-                .setdefault(decompiler, {}) \
-                .setdefault(option, []) \
-                .append((fuzzer, False))
-
-    return target_diff_result
-
+    # Print statistics
+    for project in pass_count:
+        for decompiler in pass_count[project]:
+            for option in ['O0', 'O1', 'O2', 'O3','Os']:
+                passes = pass_count[project][decompiler][option]
+                total = total_count[project][decompiler][option]
+                rate = passes / total if total > 0 else 0
+                print(f"project:{project}, decompiler:{decompiler}, option:{option}, rate:{rate:.2f}")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -343,6 +369,7 @@ def main():
         for i in range(len(dataset))
     ]))
 
+    all_project_results = {}
     for project in projects:
         try:
             print(config_path, project)
@@ -350,14 +377,30 @@ def main():
                 config = yaml.safe_load(f)
             evaluator = ReexecutableRateEvaluator(config, project)
 
-            evaluator.do_execute()
+            results = evaluator.do_execute()
+            if results:
+                # Process the results into a structured format
+                processed_results = process_results(results)
+                all_project_results[project] = processed_results
+                
+                # Also save the raw results for reference
+                with open(f'{project}_raw_results.json', 'w') as f:
+                    json.dump(results, f, default=str)
         except KeyboardInterrupt:
             break
         except Exception as e:
-            print(e)
+            logger.error(f"Error processing project {project}: {e}")
             continue
+    
+    # Save the processed results
+    with open('cer_results.json', 'w') as f:
+        json.dump(all_project_results, f)
+    
+    show_statistics(all_project_results)
+
 
 
 if __name__ == '__main__':
     main()
-    cer_result = parse_log(log_path)
+    # The parse_log function is kept for reference but not used in the main flow
+    # cer_result = parse_log(log_path)
