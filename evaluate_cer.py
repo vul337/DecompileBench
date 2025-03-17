@@ -402,5 +402,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # The parse_log function is kept for reference but not used in the main flow
-    # cer_result = parse_log(log_path)
