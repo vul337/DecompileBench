@@ -72,10 +72,10 @@ To compile the extracted functions, ensure that LLVM and Clang are installed on 
 
 Specify the libclang library file path in `LIBCLANG_PATH`, for example, `export LIBCLANG_PATH=/usr/lib/llvm-16/lib/libclang-16.so.1`, adjusting it to match your installation path.
 
-Set the `oss_fuzz_path` and the desired output path, then execute the following command:
+Set the `oss_fuzz_path` in the `config.yaml` and the desired output path, then execute the following command:
 
 ```shell
-export LIBCLANG_PATH="/usr/lib/llvm-16/lib/libclang-16.so.1"
+export LIBCLANG_PATH="/usr/lib/llvm-18/lib/libclang-18.so.1"
 export dataset_path=path/to/the/dataset
 python compile_ossfuzz.py --output $dataset_path
 ```
@@ -106,7 +106,7 @@ Then we need to provide the necessary binaries and licenses for the decompilers.
 Build the decompiler images with the following command:
 
 ```shell
-enabled_decompilers="--with-angr --with-ghidra --with-recstudio --with-reko --with-retdec --with-binja --with-dewolf --with-hexrays --with-mlm --with-relyze"
+enabled_decompilers="--with-angr --with-ghidra --with-recstudio --with-reko --with-retdec --with-binja --with-dewolf --with-hexrays --with-mlm"
 python manage.py $enabled_decompilers build
 ```
 
@@ -124,7 +124,7 @@ We use a dedicated client named `declient` to interact with the decompiler-servi
 pip install -e ./decompiler-service/src/declient
 ```
 
-To warmup the **decompiler service** (which is **necessary**), run:
+To warmup the **decompiler service** (which is **necessary** for each time restart the decompiler service), run:
 
 ```shell
 python decompiler-service/scripts/test_decompile_async.py
