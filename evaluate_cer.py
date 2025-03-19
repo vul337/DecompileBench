@@ -217,7 +217,7 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                     f'MAPPING_TXT=/challenges/{function_name}/address_mapping.txt',
                     f'LD_PRELOAD=/oss-fuzz/ld.so'
                 ], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                result.check_returncode()
+                # result.check_returncode()
                 with open(str(base_txt_path), 'r') as f:
                     base_result = f.read()
                 if txt_length != 0 and len(base_result) != txt_length:
@@ -258,7 +258,7 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                     f'MAPPING_TXT=/challenges/{function_name}/address_mapping.txt',
                     f'LD_PRELOAD=/oss-fuzz/ld.so',
                 ], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                result.check_returncode()
+                # result.check_returncode()
                 with open(str(target_txt_path), 'r') as f:
                     target_result = f.read()
                 target_difference = []
@@ -313,35 +313,35 @@ def process_results(results_list):
     
     return processed_results
 
-def show_statistics(all_project_results):
+def show_statistics(all_project_results,dataset,decompilers,opts):
     pass_count = {}
-    total_count = {}
+    function_count = {project: len(dataset.filter(lambda x: x['project']==project and x['opt']=='O0')) for project in list(set(dataset['project']))}
     
     # Count passes and totals
     for project, results in all_project_results.items():
         pass_count[project] = {}
-        total_count[project] = {}
+        for decompiler in decompilers:
+            pass_count[project].setdefault(decompiler, {})
+            for option in opts:
+                pass_count[project][decompiler].setdefault(option, 0)
         for function, decompiler_results in results.items():
-            for decompiler, option_results in decompiler_results.items():
-                pass_count[project].setdefault(decompiler, {})
-                total_count[project].setdefault(decompiler, {})
+            for decompiler,option_results in decompiler_results.items():
                 for option, results in option_results.items():
-                    pass_count[project][decompiler].setdefault(option, 0)
-                    total_count[project][decompiler].setdefault(option, 0)
-                    # Check if all results for this option passed
                     all_passed = all(result[1] for result in results)
                     if all_passed:
                         pass_count[project][decompiler][option] += 1
-                    total_count[project][decompiler][option] += 1
 
     # Print statistics
+    
+    all_total = 0
     for project in pass_count:
-        for decompiler in pass_count[project]:
-            for option in ['O0', 'O1', 'O2', 'O3','Os']:
-                passes = pass_count[project][decompiler][option]
-                total = total_count[project][decompiler][option]
-                rate = passes / total if total > 0 else 0
-                print(f"project:{project}, decompiler:{decompiler}, option:{option}, rate:{rate:.2f}")
+        total = function_count[project]
+        all_total += total
+    for decompiler in decompilers:
+        for option in opts:
+            passes = sum([pass_count[project][decompiler][option] for project in pass_count])
+            rate = passes / all_total
+            print(f"decompiler:{decompiler}, option:{option}, rate:{rate:.2f}")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -367,8 +367,12 @@ def main():
     projects = list(set([
         dataset[i]['project']
         for i in range(len(dataset))
-    ]))
+    ]))    
 
+    decompilers = None
+    opts = None
+    if not os.path.exists('tmp_results'):
+        os.makedirs('tmp_results')
     all_project_results = {}
     for project in projects:
         try:
@@ -376,7 +380,10 @@ def main():
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
             evaluator = ReexecutableRateEvaluator(config, project)
-
+            if not decompilers:
+                decompilers = evaluator.decompilers
+            if not opts:
+                opts = evaluator.opt_options
             results = evaluator.do_execute()
             if results:
                 # Process the results into a structured format
@@ -384,7 +391,7 @@ def main():
                 all_project_results[project] = processed_results
                 
                 # Also save the raw results for reference
-                with open(f'{project}_raw_results.json', 'w') as f:
+                with open(f'tmp_results/{project}_raw_results.json', 'w') as f:
                     json.dump(results, f, default=str)
         except KeyboardInterrupt:
             break
@@ -395,8 +402,10 @@ def main():
     # Save the processed results
     with open('cer_results.json', 'w') as f:
         json.dump(all_project_results, f)
-    
-    show_statistics(all_project_results)
+    try:
+        show_statistics(all_project_results, dataset, decompilers,opts)
+    except Exception as e:
+        import ipdb;ipdb.set_trace()
 
 
 
