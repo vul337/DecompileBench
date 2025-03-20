@@ -8,3 +8,4 @@ crash-*
 .gdb_history
 *.profraw
 *.txt
+t.py
