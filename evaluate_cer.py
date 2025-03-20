@@ -1,6 +1,5 @@
 import argparse
 import json
-from loguru import logger
 import os
 import pathlib
 import subprocess
@@ -8,25 +7,16 @@ from multiprocessing import Pool
 
 import datasets
 import lief
-from regex import F
+import pandas as pd
 import yaml
 from datasets import load_from_disk
-from keystone import KS_ARCH_X86, KS_MODE_64, Ks
-
-from extract_functions import OSSFuzzDatasetGenerator
-from extract_functions import run_in_docker
-
 from elftools.elf.elffile import ELFFile
 from elftools.elf.relocation import RelocationSection
 from elftools.elf.sections import SymbolTableSection
+from keystone import KS_ARCH_X86, KS_MODE_64, Ks
+from loguru import logger
 
-log_path = 'diff_branches_ossfuzz.txt'
-# Configure loguru to write to both console and file
-logger.add(log_path, rotation="500 MB", level="INFO",
-           format="{time} - {level} - {message}")
-# logging.basicConfig(filename=log_path, level=logging.INFO,
-#                     format='%(asctime)s - %(levelname)s - %(message)s')
-# logger = logging.getLogger(__name__)
+from extract_functions import OSSFuzzDatasetGenerator
 
 CODE = b"""\
 xor rax, rax;
@@ -35,7 +25,7 @@ mov rax, [rax];
 jmp rax
 """
 
-# Initialize engine in X86-32bit mode
+# Initialize engine in X86-64bit mode
 ks = Ks(KS_ARCH_X86, KS_MODE_64)
 ENCODING, count = ks.asm(CODE)
 
@@ -78,12 +68,11 @@ def get_func_offsets(so_path: pathlib.Path,
                 for reloc in rela_plt.iter_relocations():
                     symbol_idx = reloc['r_info_sym']
                     symbol = symtable.get_symbol(symbol_idx)
-                    symbol_name = symbol.name
 
-                    if symbol_name:
+                    if symbol and symbol.name:
                         offset_func.append({
                             "so_offset": hex(reloc['r_offset']),
-                            "so_func": symbol_name
+                            "so_func": symbol.name
                         })
 
         # Find binary offsets using pyelftools instead of nm
@@ -245,7 +234,7 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
                     target_libs[f'{decompiler}-{option}'] = f'/challenges/{function_name}/{option}/{decompiler}'
                 else:
                     diff_result[f'{decompiler}-{option}'] = False
-        
+
         for options, target_lib_path in target_libs.items():
             target_txt_path = pathlib.Path(self.oss_fuzz_path) / 'build' / 'challenges' / \
                 self.project / function_name / fuzzer / f'{options}.txt'
@@ -282,8 +271,8 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
             [
                 'bash', '-c',
                 f'''
-                    rm -rf /challenges/{function_name}/{fuzzer}/*.txt &&
-                    rm -rf /challenges/{function_name}/{fuzzer}/*.profraw &&
+                    rm -rf /challenges/{function_name}/{fuzzer}/*.txt
+                    rm -rf /challenges/{function_name}/{fuzzer}/*.profraw
                     rm -rf /challenges/{function_name}/{fuzzer}/*.profdata
                 ''',
             ]
@@ -295,28 +284,32 @@ class ReexecutableRateEvaluator(OSSFuzzDatasetGenerator):
 def process_results(results_list):
     """Process the results from evaluator.do_execute() into a structured format."""
     processed_results = {}
-    
+
     for result in results_list:
         if not result or len(result) != 3:
             continue
-            
+
         fuzzer, function, diff_results = result
-        
+
         for option_key, success in diff_results.items():
             decompiler, option = option_key.rsplit('-', 1)
-            
+
             # Build the nested dictionary structure
             processed_results.setdefault(function, {}) \
                 .setdefault(decompiler, {}) \
                 .setdefault(option, []) \
                 .append((fuzzer, success))
-    
+
     return processed_results
 
-def show_statistics(all_project_results,dataset,decompilers,opts):
+
+def show_statistics(all_project_results, dataset: datasets.Dataset, decompilers, opts):
     pass_count = {}
-    function_count = {project: len(dataset.filter(lambda x: x['project']==project and x['opt']=='O0')) for project in list(set(dataset['project']))}
-    
+
+    df = dataset.to_pandas()
+    assert isinstance(df, pd.DataFrame)
+    function_count = len(df.groupby(['project', 'idx']))
+
     # Count passes and totals
     for project, results in all_project_results.items():
         pass_count[project] = {}
@@ -325,23 +318,20 @@ def show_statistics(all_project_results,dataset,decompilers,opts):
             for option in opts:
                 pass_count[project][decompiler].setdefault(option, 0)
         for function, decompiler_results in results.items():
-            for decompiler,option_results in decompiler_results.items():
+            for decompiler, option_results in decompiler_results.items():
                 for option, results in option_results.items():
                     all_passed = all(result[1] for result in results)
                     if all_passed:
                         pass_count[project][decompiler][option] += 1
 
     # Print statistics
-    
-    all_total = 0
-    for project in pass_count:
-        total = function_count[project]
-        all_total += total
     for decompiler in decompilers:
         for option in opts:
-            passes = sum([pass_count[project][decompiler][option] for project in pass_count])
-            rate = passes / all_total
+            passes = sum([pass_count[project][decompiler][option]
+                         for project in pass_count])
+            rate = passes / function_count
             print(f"decompiler:{decompiler}, option:{option}, rate:{rate:.2f}")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -367,7 +357,7 @@ def main():
     projects = list(set([
         dataset[i]['project']
         for i in range(len(dataset))
-    ]))    
+    ]))
 
     decompilers = None
     opts = None
@@ -389,7 +379,7 @@ def main():
                 # Process the results into a structured format
                 processed_results = process_results(results)
                 all_project_results[project] = processed_results
-                
+
                 # Also save the raw results for reference
                 with open(f'tmp_results/{project}_raw_results.json', 'w') as f:
                     json.dump(results, f, default=str)
@@ -398,15 +388,15 @@ def main():
         except Exception as e:
             logger.error(f"Error processing project {project}: {e}")
             continue
-    
+
     # Save the processed results
     with open('cer_results.json', 'w') as f:
         json.dump(all_project_results, f)
     try:
-        show_statistics(all_project_results, dataset, decompilers,opts)
+        show_statistics(all_project_results, dataset, decompilers, opts)
     except Exception as e:
-        import ipdb;ipdb.set_trace()
-
+        import ipdb
+        ipdb.set_trace()
 
 
 if __name__ == '__main__':
