@@ -39,6 +39,19 @@ Then we compile the dummy library for linking with the fuzzer.
 docker run -it --rm -w /work -v $(pwd):/work gcr.io/oss-fuzz-base/base-builder bash -c "clang dummy.c -o libfunction.so -O2 -fPIC -shared && clang ld.c -o ld.so -shared -fPIC -O2"
 ```
 
+This repository includes a patched `llvm-cov` binary. It is identical to the `llvm-cov` bundled with official LLVM apt source, but contains a binary-level patch to prevent [formatting counters](https://github.com/llvm/llvm-project/blob/0baacd1a58420f7e4da14faa1f0e9a21d5294a6a/llvm/tools/llvm-cov/SourceCoverageView.cpp#L109) in the output. The patch is shown below:
+
+```
+.text:00000000000A15D8                 cmp     r13d, 3
+.text:00000000000A15DC                 nop                     ; Keypatch modified this from:
+.text:00000000000A15DC                                         ;   jg short loc_A1608
+.text:00000000000A15DC                                         ; Keypatch padded NOP to next boundary: 1 bytes
+.text:00000000000A15DD                 nop
+.text:00000000000A15DE                 lea     rax, [rbx+10h]
+.text:00000000000A15E2                 mov     [rbx], rax
+.text:00000000000A15E5                 mov     rcx, [rsp+88h+src]
+```
+
 ## Config
 
 The default configuration file is located at `config.yaml`, containing:

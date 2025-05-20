@@ -377,6 +377,8 @@ class OSSFuzzDatasetGenerator:
                 '-v', f'{self.oss_fuzz_path}/build/functions/{self.project}:/functions',
                 '-v', f'{self.oss_fuzz_path}/build/work/{self.project}:/work',
                 '-v', f'{self.oss_fuzz_path}/build/stats/{self.project}:/stats',
+
+                '-v', f'{repo_path}/llvm-cov:/usr/local/bin/llvm-cov',
                 '-v', f'{repo_path}/fix:/fix',
                 '-v', f'{repo_path}:/oss-fuzz',
 
