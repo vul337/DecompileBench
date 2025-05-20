@@ -1,6 +1,6 @@
-# DecompileBench Evaluation
+# DecompileBench
 
-This repository provides scripts and tools for evaluating the performance of decompilation processes using both traditional decompilers and large language models (LLMs).
+This repository provides scripts and tools for evaluating the performance of decompilation processes using both traditional decompilers and large language models (LLMs). It is used in the paper "DecompileBench: A Comprehensive Benchmark for Evaluating Decompilers in Real-World Scenarios".
 
 ## Dependencies
 
@@ -203,3 +203,19 @@ python code_quality.py --run --model your_model --dataset ./decompiled_ds_all --
 ```
 
 This script conducts an LLM arena evaluation across 12 dimensions, computing Elo scores to assess code quality. The output path will contain all scoring information in PKL files. Use the `rate` parameter instead of `run` to calculate Elo scores for different aspects and overall performance.
+
+## Bibtex
+
+If this work is helpful for your research, please consider citing the following BibTeX entry.
+
+```
+@misc{gao2025decompilebenchcomprehensivebenchmarkevaluating,
+      title={DecompileBench: A Comprehensive Benchmark for Evaluating Decompilers in Real-World Scenarios}, 
+      author={Zeyu Gao and Yuxin Cui and Hao Wang and Siliang Qin and Yuanda Wang and Bolun Zhang and Chao Zhang},
+      year={2025},
+      eprint={2505.11340},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2505.11340}, 
+}
+```
