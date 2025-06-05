@@ -1,6 +1,6 @@
 # DecompileBench
 
-This repository provides scripts and tools for evaluating the performance of decompilation processes using both traditional decompilers and large language models (LLMs). It is used in the paper "DecompileBench: A Comprehensive Benchmark for Evaluating Decompilers in Real-World Scenarios".
+This repository provides scripts and tools for evaluating the performance of decompilation processes using both traditional decompilers and large language models (LLMs). It is used in the paper "[DecompileBench: A Comprehensive Benchmark for Evaluating Decompilers in Real-World Scenarios](https://arxiv.org/abs/2505.11340)".
 
 ## Dependencies
 
