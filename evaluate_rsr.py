@@ -19,32 +19,19 @@ set_libclang_path()
 
 repo_path = pathlib.Path(__file__).resolve().parent
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--config', type=str, default="./config.yaml",
-                    help='Path to the configuration file')
-parser.add_argument("--decompiled-dataset", type=str)
-parser.add_argument("--decompilers", type=str, nargs='*',
-                    help="Decompilers to evaluate, leave empty to evaluate all decompilers specified in the config")
-args = parser.parse_args()
+oss_fuzz_path: pathlib.Path | None = None
+decompilers: Set[str] = set()
 
-with open(args.config, 'r') as f:
-    config = yaml.safe_load(f)
 
-oss_fuzz_path = pathlib.Path(config['oss_fuzz_path'])
-decompilers: Set[str] = set(config['decompilers'])
-
-if args.decompilers:
-    decompilers = decompilers.intersection(set(args.decompilers))
-
-ds_with_decompile_code = datasets.Dataset.load_from_disk(
-    args.decompiled_dataset)
-
-for col in ['include', 'opt']:
-    if col not in ds_with_decompile_code.column_names:
-        raise ValueError(f"Column {col} not found in the dataset, please make sure the dataset is a merged dataset")
-
-df = ds_with_decompile_code.to_pandas()
-assert isinstance(df, pd.DataFrame)
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default="./config.yaml",
+                        help='Path to the configuration file')
+    parser.add_argument("--decompiled-dataset", type=str, required=True,
+                        help="Path to the merged decompiled dataset produced earlier")
+    parser.add_argument("--decompilers", type=str, nargs='*',
+                        help="Decompilers to evaluate, leave empty to evaluate all decompilers specified in the config")
+    return parser.parse_args()
 
 
 class DockerContainer:
@@ -329,28 +316,61 @@ def decompile_pass_rate(gen_results, compiler, num_workers, container):
     return ret
 
 
-for d in decompilers:
-    print(f'Decompiler: {d}')
+def main():
+    global oss_fuzz_path, decompilers
 
-    if d not in df.columns:
-        continue
+    args = parse_args()
 
-    with DockerContainer('evaluate_in_docker', {
-        f'{oss_fuzz_path}/build/challenges': '/challenges',
-        f'{repo_path}/fix': '/fix'
-    }) as container:
-        eval_result_df = pd.DataFrame(
-            decompile_pass_rate(df, d, 64, container))
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
 
-    for opt, per_opt_df in eval_result_df.groupby('opt'):
-        compile_rate = per_opt_df['flag_compile'].mean()
+    oss_fuzz_path = pathlib.Path(config['oss_fuzz_path'])
+    decompilers = set(config['decompilers'])
 
-        print(
-            f"Optimization {opt}: Compile Rate: {compile_rate:.4f}")
-    print('-' * 30)
+    if args.decompilers:
+        decompilers = decompilers.intersection(set(args.decompilers))
 
-rm_docker_cmd = "docker rm -f evaluate_in_docker"
-result = subprocess.run(rm_docker_cmd, shell=True,
-                        capture_output=True, text=True)
-if result.returncode == 0:
-    print("Container evaluate_in_docker removed successfully")
+    if not args.decompiled_dataset:
+        raise ValueError(
+            "--decompiled-dataset is required. Please provide the path to the merged dataset.")
+
+    ds_with_decompile_code = datasets.Dataset.load_from_disk(
+        args.decompiled_dataset)
+
+    for col in ['include', 'opt']:
+        if col not in ds_with_decompile_code.column_names:
+            raise ValueError(
+                f"Column {col} not found in the dataset, please make sure the dataset is a merged dataset")
+
+    df = ds_with_decompile_code.to_pandas()
+    assert isinstance(df, pd.DataFrame)
+
+    for d in decompilers:
+        print(f'Decompiler: {d}')
+
+        if d not in df.columns:
+            continue
+
+        with DockerContainer('evaluate_in_docker', {
+            f'{oss_fuzz_path}/build/challenges': '/challenges',
+            f'{repo_path}/fix': '/fix'
+        }) as container:
+            eval_result_df = pd.DataFrame(
+                decompile_pass_rate(df, d, 64, container))
+
+        for opt, per_opt_df in eval_result_df.groupby('opt'):
+            compile_rate = per_opt_df['flag_compile'].mean()
+
+            print(
+                f"Optimization {opt}: Compile Rate: {compile_rate:.4f}")
+        print('-' * 30)
+
+    rm_docker_cmd = "docker rm -f evaluate_in_docker"
+    result = subprocess.run(rm_docker_cmd, shell=True,
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        print("Container evaluate_in_docker removed successfully")
+
+
+if __name__ == "__main__":
+    main()

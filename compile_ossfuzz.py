@@ -1,4 +1,5 @@
 import argparse
+import functools
 import os
 import pathlib
 import re
@@ -168,7 +169,7 @@ ds.save_to_disk(outpath.as_posix())
 OUTPUT_BINARY_PATH = OUTPUT_PATH / "binary"
 OUTPUT_BINARY_PATH.mkdir(exist_ok=True, parents=True)
 
-extra_flags = ' '.join([
+extra_flags = [
     "-mno-sse",
     "-fno-eliminate-unused-debug-types",
     "-fno-lto",
@@ -177,7 +178,7 @@ extra_flags = ' '.join([
     # "-fno-inline-functions-called-once",  # not supported in clang
     "-fno-inline",
     # "-fno-reorder-blocks-and-partition",  # not supported in clang
-])
+]
 
 
 def compile(row, container: DockerContainer):
@@ -197,12 +198,11 @@ def compile(row, container: DockerContainer):
                 f.write(func)
 
             output_file = OUTPUT_BINARY_PATH / f'task-{idx}-{opt}.so'
-            output_file_indocker = pathlib.Path(
-                '/challenges') / f'task-{idx}-{opt}.so'
+            output_file_indocker = pathlib.Path('/challenges/binary') / f'task-{idx}-{opt}.so'
             cmd = ['clang', filepath, f'-{opt}', '-shared', '-fPIC',
-                   '-o', output_file_indocker, extra_flags, '-lm']
-            container.exec_in_container(
-                cmd, cwd='/challenges', shell=True, check=True)
+                   '-o', str(output_file_indocker)] + extra_flags + ['-lm']
+            out = container.exec_in_container(
+                cmd, cwd='/challenges', shell=False, check=True, capture_output=True)
 
             ret = subprocess.run(
                 f'nm {output_file} | egrep " {function_name}$"', stdout=subprocess.PIPE, shell=True, check=True)
@@ -224,10 +224,10 @@ def compile(row, container: DockerContainer):
     return challenge
 
 
-def tqdm_progress_map(func, iterable, num_workers, container):
+def tqdm_progress_map(func, iterable, num_workers):
     results = []
     with Pool(num_workers) as pool:
-        for result in tqdm(pool.imap_unordered(func, iterable, container), total=len(iterable)):
+        for result in tqdm(pool.imap_unordered(func, iterable), total=len(iterable)):
             results.append(result)
     return results
 
@@ -236,7 +236,7 @@ with DockerContainer('evaluate_in_docker', {
     f'{OUTPUT_PATH}': '/challenges',
     '/dev/shm': '/dev/shm'
 }) as container:
-    res = tqdm_progress_map(compile, ds, args.num_workers, container)
+    res = tqdm_progress_map(functools.partial(compile, container=container), ds, args.num_workers)
 res = list(chain(*res))
 ds = datasets.Dataset.from_list(res)
 print(len(ds))
