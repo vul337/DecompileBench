@@ -260,6 +260,7 @@ class OSSFuzzDatasetGenerator:
         def preprocess_then_clang_extract():
             clang_result = self.exec_in_container(
                 [
+                    cmd_info['arguments'][0],  # compile_args has no compiler
                     *compile_args,
                     '-E', '-C', '-fdirectives-only'
                 ],
