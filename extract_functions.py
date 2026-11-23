@@ -22,7 +22,8 @@ repo_path = pathlib.Path(__file__).resolve().parent
 
 
 def is_elf(file_path):
-    if file_path.is_dir():
+    # is_file() is False for directories and for dangling symlinks
+    if not file_path.is_file():
         return False
     with open(file_path, 'rb') as f:
         elf_magic_number = b'\x7fELF'
@@ -145,6 +146,9 @@ class OSSFuzzDatasetGenerator:
             'build' / 'corpus' / self.project / fuzzer
         corpus_zip = pathlib.Path(
             self.oss_fuzz_path) / 'build/out' / self.project / f'{fuzzer}_seed_corpus.zip'
+        if corpus_zip.is_symlink() and os.readlink(corpus_zip).startswith('/out/'):
+            # build.sh ran in the container, where $OUT is /out
+            corpus_zip = corpus_zip.parent / os.readlink(corpus_zip)[len('/out/'):]
 
         if not corpus_zip.exists():
             logger.warning(
